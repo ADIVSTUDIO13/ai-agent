@@ -1,0 +1,19 @@
+# Dependency directories
+node_modules/
+
+# Local environment variables
+.env
+.env.local
+
+# Memory and temporary files
+memory/
+sandbox/*.png
+sandbox/uploaded_*
+task/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+*.log
