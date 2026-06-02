@@ -4,6 +4,20 @@ Telegram Bot serba bisa berbasis AI (Groq SDK) dan Telegraf. Bot ini dilengkapi 
 
 ---
 
+## 💻 Tech Stack
+
+Proyek ini dibangun menggunakan teknologi modern berikut:
+
+*   **Runtime Environment**: ![Node.js](https://img.shields.io/badge/Node.js-v18%2B-green?style=flat-square&logo=node.js) (ES Modules)
+*   **Telegram Framework**: ![Telegraf](https://img.shields.io/badge/Telegraf-v4.16-blue?style=flat-square&logo=telegram) (Telegram Bot API wrapper untuk Node.js)
+*   **AI Engine**: ![Groq](https://img.shields.io/badge/Groq%20SDK-v0.12-orange?style=flat-square) (SDK untuk inference berkecepatan tinggi dengan model Llama 3/4 & Qwen)
+*   **Image Processing**: ![Jimp](https://img.shields.io/badge/Jimp-v1.6-red?style=flat-square) (Pustaka manipulasi gambar untuk menempelkan logo perusahaan pada grafik secara dinamis)
+*   **Data Fetching**: ![Axios](https://img.shields.io/badge/Axios-v1.16-purple?style=flat-square) & ![Cheerio](https://img.shields.io/badge/Cheerio-v1.2-orange?style=flat-square) (Untuk HTTP requests dan scraping data/informasi web)
+*   **Visual Charting**: ![QuickChart](https://img.shields.io/badge/QuickChart%20API-Chart.js-blueviolet?style=flat-square) (Layanan generator grafik responsif untuk memvisualisasikan tren pasar dalam Dark Mode)
+*   **Database & Memory**: Berkas JSON lokal (untuk menyimpan fakta/memori dan data limit harian pengguna)
+
+---
+
 ## 🌟 Fitur Utama
 
 ### 1. 🤖 AI Agent & Model Pilihan
