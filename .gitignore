@@ -7,8 +7,7 @@ node_modules/
 
 # Memory and temporary files
 memory/
-sandbox/*.png
-sandbox/uploaded_*
+sandbox/
 task/
 
 # Logs
@@ -17,3 +16,7 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 *.log
+
+bin/
+scratch/
+.vscode/

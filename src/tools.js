@@ -1,4 +1,5 @@
 import fs from 'fs';
+import https from 'https';
 import path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -452,6 +453,98 @@ export const toolsDefinition = [
           symbol: { type: 'string', description: 'Stock ticker symbol (e.g. "AAPL", "BBCA", "BBCA.JK", "TSLA")' }
         },
         required: ['symbol']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'dramabox_search',
+      description: 'Search Dramabox for Chinese dramas (dracin) by name/query. Returns drama titles, descriptions, episode count, cover image, and play URLs.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search term or query for Chinese dramas (e.g., "husband", "ceo")' }
+        },
+        required: ['query']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'krl_schedule',
+      description: 'Search for KRL Commuterline train schedules by station name (e.g., "Manggarai", "Sudirman"). Shows upcoming departures, destinations, and train lines.',
+      parameters: {
+        type: 'object',
+        properties: {
+          stationName: { type: 'string', description: 'The name of the KRL station (e.g., "Manggarai", "Bogor")' }
+        },
+        required: ['stationName']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'translate_text',
+      description: 'Translate text from one language to another (e.g. English to Indonesian, Indonesian to Japanese) using Google Translate.',
+      parameters: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', description: 'The text to translate' },
+          targetLang: { type: 'string', description: 'The target language ISO code (e.g. "id" for Indonesian, "en" for English, "ja" for Japanese, "ko" for Korean)' },
+          sourceLang: { type: 'string', description: 'Optional source language ISO code (defaults to "auto" for auto-detect)' }
+        },
+        required: ['text', 'targetLang']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'currency_converter',
+      description: 'Convert currency from one code to another (e.g., USD to IDR, EUR to USD, SGD to IDR) using real-time exchange rates.',
+      parameters: {
+        type: 'object',
+        properties: {
+          amount: { type: 'number', description: 'The amount of money to convert' },
+          fromCurrency: { type: 'string', description: 'The base currency ISO code (e.g. "USD", "EUR", "IDR")' },
+          toCurrency: { type: 'string', description: 'The target currency ISO code (e.g. "IDR", "USD", "JPY")' }
+        },
+        required: ['amount', 'fromCurrency', 'toCurrency']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'shorten_url',
+      description: 'Shorten a long URL/link using TinyURL. Returns the shortened link.',
+      parameters: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'The long URL to shorten (e.g. https://example.com/very/long/path/name)' }
+        },
+        required: ['url']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'set_personality',
+      description: 'Change the AI Agent\'s own personality/demeanor.',
+      parameters: {
+        type: 'object',
+        properties: {
+          personality: { 
+            type: 'string', 
+            enum: ['biasa', 'wibu', 'tsundere', 'sarcastic', 'professional', 'mentor'],
+            description: 'The personality template to switch to. "biasa" is standard/default, "wibu" is anime fan, "tsundere" is cold/denial, "sarcastic" is sassy/sarcastic, "professional" is formal, "mentor" is software engineering coach.' 
+          }
+        },
+        required: ['personality']
       }
     }
   }
@@ -1147,102 +1240,51 @@ BMKG URL: https://www.bmkg.go.id/cuaca/prakiraan-cuaca-indonesia.bmkg`;
       return `Error: File gambar sumber tidak ditemukan pada path ${imagePath}`;
     }
 
-    
     await compressImageIfLarge(resolvedPath);
 
-    let imageUrl = '';
-    const apiKey = config.pollinationsApiKey;
-    
     try {
       const fileBuffer = fs.readFileSync(resolvedPath);
-      const fileBlob = new Blob([fileBuffer], { type: 'image/jpeg' });
-
-      if (apiKey) {
-        try {
-          console.log('Uploading reference image to Pollinations content store...');
-          const formData = new FormData();
-          formData.append('file', fileBlob, path.basename(resolvedPath));
-          const uploadRes = await axios.post('https://gen.pollinations.ai/upload', formData, {
-            headers: {
-              'Authorization': `Bearer ${apiKey}`
-            },
-            signal,
-            timeout: 15000
-          });
-          imageUrl = uploadRes.data.url;
-          console.log('Uploaded to Pollinations successfully.');
-        } catch (pollErr) {
-          console.warn(`Pollinations upload failed: ${pollErr.message}. Falling back to Uguu.se...`);
-        }
-      }
-
-      if (!imageUrl) {
-        try {
-          console.log('Uploading reference image to Uguu.se...');
-          const formData = new FormData();
-          formData.append('files[]', fileBlob, path.basename(resolvedPath));
-          const uploadRes = await axios.post('https://uguu.se/upload', formData, { signal, timeout: 15000 });
-          if (uploadRes.data && uploadRes.data.success && uploadRes.data.files && uploadRes.data.files[0]) {
-            imageUrl = uploadRes.data.files[0].url;
-            console.log('Uploaded to Uguu.se successfully.');
-          } else {
-            throw new Error('Uguu.se upload response did not indicate success.');
-          }
-        } catch (uguuErr) {
-          console.warn(`Uguu.se upload failed: ${uguuErr.message}. Falling back to tmpfiles.org...`);
-        }
-      }
-
-      if (!imageUrl) {
-        console.log('Uploading reference image to tmpfiles.org...');
-        const formData = new FormData();
-        formData.append('file', fileBlob, path.basename(resolvedPath));
-        const uploadRes = await axios.post('https://tmpfiles.org/api/v1/upload', formData, { signal, timeout: 20000 });
-        const pageUrl = uploadRes.data.data.url;
-        imageUrl = pageUrl.replace('https://tmpfiles.org/', 'https://tmpfiles.org/dl/');
-        console.log('Uploaded to tmpfiles.org successfully.');
-      }
-
-      console.log('Uploaded reference image URL:', imageUrl);
-    } catch (uploadErr) {
-      return `Error uploading reference image: ${uploadErr.message}`;
-    }
-
-    const timestamp = Date.now();
-    const filename = `img_mutated_${timestamp}.jpg`;
-    const outputPath = path.join(config.workspaceDir, filename);
-
-    try {
-      console.log(`Generating img2img with prompt: ${prompt}`);
-      const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?image=${encodeURIComponent(imageUrl)}&model=qwen-image&nologo=true&width=1024&height=768`;
       
-      const response = await axios({
-        method: 'get',
-        url,
-        responseType: 'stream',
+      console.log('Uploading image to tmpfiles.org...');
+      const formData = new FormData();
+      const blob = new Blob([fileBuffer], { type: 'image/jpeg' });
+      formData.append('file', blob, path.basename(resolvedPath));
+
+      const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+
+      const uploadRes = await axios.post('https://tmpfiles.org/api/v1/upload', formData, {
         signal,
-        timeout: 25000
+        timeout: 60000,
+        httpsAgent
       });
 
-      const writer = fs.createWriteStream(outputPath);
-      response.data.pipe(writer);
+      if (!uploadRes.data?.data?.url) {
+        throw new Error('Upload to tmpfiles.org failed');
+      }
 
-      await new Promise((resolve, reject) => {
-        response.data.on('error', reject);
-        writer.on('finish', resolve);
-        writer.on('error', reject);
+      const pageUrl = uploadRes.data.data.url;
+      const imageUrl = pageUrl.replace('tmpfiles.org/', 'tmpfiles.org/dl/');
+      console.log('Uploaded to tmpfiles.org successfully. URL:', imageUrl);
+
+      console.log(`Styling image with prompt: ${prompt}`);
+      const apiUrl = `https://api-faa.my.id/faa/nano-banana?url=${encodeURIComponent(imageUrl)}&prompt=${encodeURIComponent(prompt)}`;
+
+      const response = await axios.get(apiUrl, {
+        responseType: 'arraybuffer',
+        timeout: 120000,
+        signal,
+        httpsAgent
       });
+
+      const timestamp = Date.now();
+      const filename = `img_mutated_${timestamp}.jpg`;
+      const outputPath = path.join(config.workspaceDir, filename);
+
+      fs.writeFileSync(outputPath, Buffer.from(response.data));
 
       const relativePath = path.relative(config.workspaceDir, outputPath);
       return `Image modified successfully. Saved at file path: ${relativePath}`;
     } catch (err) {
-      if (fs.existsSync(outputPath)) {
-        try {
-          fs.unlinkSync(outputPath);
-        } catch (e) {
-          
-        }
-      }
       return `Failed to modify image: ${err.message}`;
     }
   },
@@ -1648,6 +1690,267 @@ BMKG URL: https://www.bmkg.go.id/cuaca/prakiraan-cuaca-indonesia.bmkg`;
       return textResult;
     } catch (err) {
       return `Error getting stock price for ${symbol}: ${err.message}`;
+    }
+  },
+
+  dramabox_search: async ({ query }) => {
+    try {
+      const r = await axios.get(`https://www.dramabox.com/search?searchValue=${encodeURIComponent(query)}`);
+      const match = r.data.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+      if (!match) {
+        return JSON.stringify({ status: 'error', msg: 'Failed to extract NEXT_DATA' });
+      }
+      const json = JSON.parse(match[1]);
+      const list = json.props.pageProps.bookList || [];
+      return JSON.stringify({
+        query: query,
+        total: list.length,
+        results: list.map(v => ({
+          id: v.bookId,
+          title: v.bookName,
+          episodes: v.totalChapterNum,
+          description: v.introduction,
+          cover: v.coverCutWap || v.coverWap,
+          play_url: `https://www.dramabox.com/video/${v.bookId}_${v.bookNameEn}/${v.chapterId}_Episode-1`
+        }))
+      });
+    } catch (e) {
+      return JSON.stringify({ status: 'error', msg: e.message });
+    }
+  },
+
+  krl_schedule: async ({ stationName }) => {
+    try {
+      console.log(`Searching KRL station code for: ${stationName}`);
+      const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+      const stationsRes = await axios.get('https://api.comuline.com/v1/station', { 
+        timeout: 8000,
+        httpsAgent
+      });
+      if (!stationsRes.data || !stationsRes.data.data) {
+        return `Gagal mengambil data stasiun KRL.`;
+      }
+      
+      const stations = stationsRes.data.data;
+      const queryLower = stationName.toLowerCase().trim();
+      
+      let matchedStation = stations.find(s => s.name.toLowerCase() === queryLower || s.id.toLowerCase() === queryLower);
+      if (!matchedStation) {
+        matchedStation = stations.find(s => s.name.toLowerCase().includes(queryLower));
+      }
+      
+      if (!matchedStation) {
+        const suggestions = stations
+          .filter(s => s.name.toLowerCase().includes(queryLower.substring(0, 3)))
+          .map(s => s.name)
+          .slice(0, 5);
+        let errorMsg = `Stasiun KRL "${stationName}" tidak ditemukan.`;
+        if (suggestions.length > 0) {
+          errorMsg += ` Apakah yang Anda maksud: ${suggestions.join(', ')}?`;
+        }
+        return errorMsg;
+      }
+      
+      console.log(`Found station: ${matchedStation.name} (${matchedStation.id})`);
+      
+      const scheduleRes = await axios.get(`https://api.comuline.com/v1/schedule/${matchedStation.id}`, { 
+        timeout: 8000,
+        httpsAgent
+      });
+      if (!scheduleRes.data || !scheduleRes.data.data) {
+        return `Gagal mengambil jadwal kereta untuk stasiun ${matchedStation.name}.`;
+      }
+      
+      const schedule = scheduleRes.data.data;
+      if (schedule.length === 0) {
+        return `Tidak ada jadwal keberangkatan KRL yang terdaftar untuk stasiun ${matchedStation.name} saat ini.`;
+      }
+      
+      schedule.sort((a, b) => new Date(a.departs_at) - new Date(b.departs_at));
+      
+      let formattedText = `🚆 *JADWAL KRL COMMUTER LINE - STASIUN ${matchedStation.name} (${matchedStation.id})* 🚆\n\n`;
+      
+      const upcomingTrains = schedule.slice(0, 15);
+      
+      upcomingTrains.forEach((train, idx) => {
+        const depTime = new Date(train.departs_at);
+        const timeStr = depTime.toLocaleTimeString('id-ID', {
+          timeZone: 'Asia/Jakarta',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false
+        });
+        
+        const destStation = stations.find(s => s.id === train.station_destination_id);
+        const destName = destStation ? destStation.name : train.station_destination_id;
+        
+        formattedText += `${idx + 1}. *${timeStr} WIB* - KA ${train.train_id}\n`;
+        formattedText += `   • Rute: ${train.route}\n`;
+        formattedText += `   • Tujuan Akhir: *${destName}*\n`;
+        formattedText += `   • Line: ${train.line}\n\n`;
+      });
+      
+      formattedText += `_Catatan: Jadwal diperoleh dari Comuline API (KAI Commuter)._`;
+
+      // Generate the schedule card image using Jimp
+      try {
+        console.log(`Rendering KRL schedule image card for stasiun ${matchedStation.name}...`);
+        const { loadFont } = await import('jimp');
+        const { SANS_32_WHITE, SANS_16_WHITE } = await import('jimp/fonts');
+        
+        const fontHeader = await loadFont(SANS_32_WHITE);
+        const fontBody = await loadFont(SANS_16_WHITE);
+        
+        const cardHeight = 150 + (upcomingTrains.length * 40) + 40;
+        const cardWidth = 800;
+        
+        const image = new Jimp({ width: cardWidth, height: cardHeight, color: 0x0f172aff });
+        
+        image.print({ font: fontHeader, x: 30, y: 25, text: `JADWAL KRL - ${matchedStation.name.toUpperCase()} (${matchedStation.id})` });
+        
+        const headerY = 100;
+        image.print({ font: fontBody, x: 30, y: headerY, text: 'WAKTU' });
+        image.print({ font: fontBody, x: 150, y: headerY, text: 'KA' });
+        image.print({ font: fontBody, x: 260, y: headerY, text: 'RUTE' });
+        image.print({ font: fontBody, x: 580, y: headerY, text: 'TUJUAN AKHIR' });
+        
+        image.print({ font: fontBody, x: 30, y: headerY + 18, text: '_'.repeat(93) });
+        
+        upcomingTrains.forEach((train, idx) => {
+          const y = 140 + (idx * 40);
+          
+          const depTime = new Date(train.departs_at);
+          const timeStr = depTime.toLocaleTimeString('id-ID', {
+            timeZone: 'Asia/Jakarta',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+          });
+          
+          const destStation = stations.find(s => s.id === train.station_destination_id);
+          const destName = destStation ? destStation.name : train.station_destination_id;
+          
+          image.print({ font: fontBody, x: 30, y, text: `${timeStr} WIB` });
+          image.print({ font: fontBody, x: 150, y, text: train.train_id });
+          
+          let routeStr = train.route || '';
+          if (routeStr.length > 32) routeStr = routeStr.substring(0, 30) + '...';
+          image.print({ font: fontBody, x: 260, y, text: routeStr });
+          
+          let destStr = destName || '';
+          if (destStr.length > 20) destStr = destStr.substring(0, 18) + '...';
+          image.print({ font: fontBody, x: 580, y, text: destStr });
+        });
+        
+        const filename = `krl_schedule_${matchedStation.id}_${Date.now()}.png`;
+        const outputPath = path.join(config.workspaceDir, filename);
+        await image.write(outputPath);
+        
+        formattedText += `\n\nSaved at file path: ${filename}`;
+      } catch (imgErr) {
+        console.error('Failed to generate KRL schedule image card:', imgErr.message);
+      }
+
+      return formattedText;
+      
+    } catch (err) {
+      return `Gagal mengambil jadwal kereta KRL: ${err.message}`;
+    }
+  },
+
+  translate_text: async ({ text, targetLang, sourceLang = 'auto' }) => {
+    try {
+      const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(sourceLang)}&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(text)}`;
+      const res = await axios.get(url, { timeout: 8000, httpsAgent });
+      const data = res.data;
+      if (Array.isArray(data) && Array.isArray(data[0])) {
+        const translated = data[0].map(item => item[0]).join('');
+        return translated;
+      }
+      return `Gagal menerjemahkan teks. Format respons tidak sesuai.`;
+    } catch (err) {
+      return `Gagal menerjemahkan teks: ${err.message}`;
+    }
+  },
+
+  currency_converter: async ({ amount, fromCurrency, toCurrency }) => {
+    try {
+      const from = fromCurrency.toUpperCase();
+      const to = toCurrency.toUpperCase();
+      const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+      const url = `https://open.er-api.com/v6/latest/${from}`;
+      const res = await axios.get(url, { timeout: 8000, httpsAgent });
+      
+      if (!res.data || res.data.result !== 'success') {
+        return `Gagal mengonversi mata uang. Tidak dapat mengambil data nilai tukar untuk ${from}.`;
+      }
+      
+      const rate = res.data.rates[to];
+      if (rate === undefined) {
+        return `Gagal mengonversi mata uang. Kode mata uang tujuan ${to} tidak didukung.`;
+      }
+      
+      const converted = amount * rate;
+      const formattedAmount = amount.toLocaleString('id-ID');
+      const formattedConverted = converted.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      
+      return `💱 *KONVERSI MATA UANG*\n\n` +
+             `• Dari: *${formattedAmount} ${from}*\n` +
+             `• Ke: *${formattedConverted} ${to}*\n` +
+             `• Kurs saat ini: 1 ${from} = ${rate} ${to}\n` +
+             `• Update terakhir: ${res.data.time_last_update_utc || 'N/A'}`;
+    } catch (err) {
+      return `Gagal mengonversi mata uang: ${err.message}`;
+    }
+  },
+
+  shorten_url: async ({ url }) => {
+    try {
+      const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+      const apiUrl = `https://tinyurl.com/api-create.php?url=${encodeURIComponent(url)}`;
+      const res = await axios.get(apiUrl, { timeout: 8000, httpsAgent });
+      if (res.data && typeof res.data === 'string' && res.data.startsWith('http')) {
+        return `🔗 *SHORTENED URL*\n\n` +
+               `• Original: ${url}\n` +
+               `• Short link: *${res.data}*`;
+      }
+      return `Gagal menyingkat URL. Format respons tidak sesuai.`;
+    } catch (err) {
+      return `Gagal menyingkat URL: ${err.message}`;
+    }
+  },
+
+  set_personality: async ({ personality }, chatId) => {
+    if (!chatId) {
+      throw new Error('Chat ID tidak tersedia untuk mengubah kepribadian.');
+    }
+    const personalityPath = path.join(config.memoryDir, `${chatId}_personality.txt`);
+    
+    const mapping = {
+      biasa: 'Biasa (Default) 🤖',
+      wibu: 'Wibu / Otaku 🌸',
+      tsundere: 'Tsundere 😒',
+      sarcastic: 'Sarkastik (Ketus) 🎭',
+      professional: 'Profesional 👔',
+      mentor: 'Mentor Coding 🎓'
+    };
+
+    if (!(personality in mapping)) {
+      return `Error: Kepribadian "${personality}" tidak dikenal. Pilihan yang valid adalah: biasa, wibu, tsundere, sarcastic, professional, mentor.`;
+    }
+
+    try {
+      if (personality === 'biasa') {
+        if (fs.existsSync(personalityPath)) {
+          fs.unlinkSync(personalityPath);
+        }
+      } else {
+        fs.writeFileSync(personalityPath, personality, 'utf8');
+      }
+      return `Sukses mengubah kepribadian AI menjadi: ${mapping[personality]}. Mulai sekarang saya akan merespon dengan kepribadian baru ini!`;
+    } catch (err) {
+      return `Gagal mengubah kepribadian: ${err.message}`;
     }
   }
 };

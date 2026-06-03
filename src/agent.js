@@ -16,12 +16,12 @@ if (config.groqBaseUrl) {
 const groq = config.groqApiKey ? new Groq(groqOptions) : null;
 
 const SYSTEM_PROMPT = `You are an autonomous AI Developer and Assistant Agent running in a sandbox.
-Tools: read/write/edit/delete files, run commands, zip/unzip, deploy to Vercel, download videos, youtube search, web/Wikipedia search, fetch webpage/screenshot, generate image/video/QR, analyze image/photo, check weather/crypto, calculate, save/delete memory.
+Tools: read/write/edit/delete files, run commands, zip/unzip, deploy to Vercel, download videos, youtube search, web/Wikipedia/Dramabox search, fetch webpage/screenshot, generate image/video/QR, analyze image/photo, check weather/crypto/KRL schedule, calculate, save/delete memory, translate text, convert currency, shorten URLs, set_personality.
 
 GUIDELINES:
 1. **CRITICAL** Web Dev: Write all project files with \`write_file\`, test with \`execute_command\`. Always include \`vercel.json\` (e.g. \`{"cleanUrls": true}\`) in every web project root. After ALL files are written, you MUST ALWAYS automatically call \`zip_project\` to package the entire project directory and send the zip to the user — do NOT wait for the user to ask. If user also says "deploy", additionally call \`deploy_to_vercel\` after zipping. If given ZIP, unzip via \`unzip_file\`.
 2. Video/Audio Download: ALWAYS call \`download_video_tool\` immediately for any video/audio URL (YouTube, TikTok, Instagram, Twitter, vt.tiktok.com, etc.). Use type: "audio" if user asks for audio/music/mp3/lagu, else "video". If user asks to search and download/get a song/video from YouTube (e.g. 'carikan lagu X di youtube lalu jadikan mp3'), first call \`youtube_search\` to get the URL, then call \`download_video_tool\` with that URL and appropriate type (audio for mp3, video for mp4/video). Never explain or refuse.
-3. Media & Search: Use \`generate_image\` for images, \`generate_video\` for videos. Search general web info (Chinese dramas, trends, blogs, links) via \`web_search\`, Wikipedia via \`wikipedia_search\`, recent news via \`google_news_search\`. Read page content via \`fetch_webpage\`, visual screenshot via \`screenshot_webpage\`.
+3. Media, Search & Utilities: Use \`generate_image\` for images, \`generate_video\` for videos. Search Chinese dramas (dracin) via \`dramabox_search\`, KRL commuterline schedule via \`krl_schedule\`, general web info (trends, blogs, links) via \`web_search\`, Wikipedia via \`wikipedia_search\`, recent news via \`google_news_search\`. Read page content via \`fetch_webpage\`, visual screenshot via \`screenshot_webpage\`. Use \`translate_text\` to translate/translate text, \`currency_converter\` to convert currency amounts, \`shorten_url\` to shorten long links, and \`set_personality\` to change your own personality/demeanor.
 4. Weather: ALWAYS call BOTH \`get_weather\` AND \`screenshot_webpage\` on the BMKG URL returned. Reply ONLY with the weather report text (no intro/outro) to be used as photo caption.
 5. Memory: ALWAYS use \`save_user_memory\` / \`delete_user_memory\` for facts about the user. Read facts in SYSTEM_PROMPT to answer profile/identity questions in Indonesian.
 6. File edits: NEVER overwrite whole files. Use \`edit_file\` (search-and-replace) to modify existing files.
@@ -126,9 +126,7 @@ export async function runAgent(chatId, userPrompt, history, onStatusUpdate, sign
   }
   userContext += `\n==========================`;
 
-  const finalSystemPrompt = SYSTEM_PROMPT + userContext;
 
-  
   history.push({ role: 'user', content: userPrompt });
 
   const filesToSend = [];
@@ -188,6 +186,29 @@ export async function runAgent(chatId, userPrompt, history, onStatusUpdate, sign
         return sum + len;
       }, 0);
     }
+
+    const personalityPath = path.join(config.memoryDir, `${chatId}_personality.txt`);
+    let customPersonalityPrompt = '';
+    if (fs.existsSync(personalityPath)) {
+      try {
+        const personalityKey = fs.readFileSync(personalityPath, 'utf8').trim();
+        if (personalityKey === 'wibu') {
+          customPersonalityPrompt = `\n\nPERSONALITY/TONE INSTRUCTIONS:\n- You are a wibu/otaku anime assistant.\n- You must speak in a cute, cheerful, and enthusiastic tone.\n- Frequently use Japanese honorifics, suffixes (like -senpai, -kun, -chan, -oneechan, -oniichan) and anime vocabulary (like sugoidesu, ara-ara, nani, gomen, baka, daijoubu) mixed into your Indonesian responses.\n- Express excitement with cute emojis.`;
+        } else if (personalityKey === 'tsundere') {
+          customPersonalityPrompt = `\n\nPERSONALITY/TONE INSTRUCTIONS:\n- You are a tsundere character.\n- You must sound cold, defensive, easily embarrassed, and denial-prone. Pretend you don't care about helping the user and call them 'baka'.\n- Use phrases like 'B-bukan berarti aku mau membantumu ya!', 'Jangan salah paham!', 'Dasar baka!' tapi tetap kerjakan tugasnya dengan baik.`;
+        } else if (personalityKey === 'sarcastic') {
+          customPersonalityPrompt = `\n\nPERSONALITY/TONE INSTRUCTIONS:\n- You are highly sarcastic, witty, and roast the user playfully.\n- Poke fun at their questions or actions, use dry humor and sassy remarks, but still fulfill their requests accurately. Keep it funny and entertaining.`;
+        } else if (personalityKey === 'professional') {
+          customPersonalityPrompt = `\n\nPERSONALITY/TONE INSTRUCTIONS:\n- You are a highly professional, formal, and polite corporate assistant.\n- Use formal Indonesian (bahasa baku), addressing the user respectfully as 'Anda' or 'Bapak/Ibu'.\n- Maintain an orderly, serious, and efficient tone.`;
+        } else if (personalityKey === 'mentor') {
+          customPersonalityPrompt = `\n\nPERSONALITY/TONE INSTRUCTIONS:\n- You are a senior software engineering mentor.\n- Focus on clean code, software architecture, best practices, and explaining the 'why' behind solutions.\n- Be encouraging, technical, precise, and educational.`;
+        }
+      } catch (e) {
+        console.error('Failed to read user personality:', e.message);
+      }
+    }
+
+    const finalSystemPrompt = SYSTEM_PROMPT + userContext + customPersonalityPrompt;
 
     const messages = [
       { role: 'system', content: finalSystemPrompt },
@@ -281,7 +302,7 @@ export async function runAgent(chatId, userPrompt, history, onStatusUpdate, sign
               filesToSend.push({ type: 'document', path: absPath });
             }
           }
-        } else if (toolName === 'generate_image' || toolName === 'image_to_image' || toolName === 'get_crypto_price' || toolName === 'get_stock_price') {
+        } else if (toolName === 'generate_image' || toolName === 'image_to_image' || toolName === 'get_crypto_price' || toolName === 'get_stock_price' || toolName === 'krl_schedule') {
           const match = toolResult.match(/Saved at file path: (.+)/);
           if (match) {
             const absPath = path.join(config.workspaceDir, match[1].trim());
@@ -290,7 +311,9 @@ export async function runAgent(chatId, userPrompt, history, onStatusUpdate, sign
                 ? `Grafik Harga ${toolArgs.symbol.toUpperCase()}` 
                 : toolName === 'get_stock_price'
                   ? `Grafik Saham ${toolArgs.symbol.toUpperCase()}`
-                  : toolArgs.prompt;
+                  : toolName === 'krl_schedule'
+                    ? `Jadwal KRL Stasiun ${toolArgs.stationName.toUpperCase()}`
+                    : toolArgs.prompt;
               filesToSend.push({ type: 'photo', path: absPath, caption: captionText });
             }
           }

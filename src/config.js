@@ -9,6 +9,7 @@ const __dirname = path.dirname(__filename);
 
 export const config = {
   telegramToken: process.env.TELEGRAM_BOT_TOKEN || '',
+  telegramApiRoot: process.env.TELEGRAM_API_ROOT || 'https://api.telegram.org',
   groqApiKey: process.env.GROQ_API_KEY || '',
   groqModel: process.env.GROQ_MODEL || 'qwen/qwen3-32b',
   groqBaseUrl: process.env.GROQ_BASE_URL || undefined,

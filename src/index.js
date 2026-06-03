@@ -1,12 +1,16 @@
+import dns from 'dns';
 import fs from 'fs';
 import path from 'path';
 import { Telegraf, Markup } from 'telegraf';
 import { config, validateConfig } from './config.js';
+
+dns.setDefaultResultOrder('ipv4first');
 import { runAgent, transcribeAudio, analyzePhoto, getCurrentModel, setModel } from './agent.js';
 import { downloadVideo, getYtDlpPath, getFfmpegPath, getFfprobePath, ensureSandbox, downloadTelegramFile, compressImageIfLarge, generateTts, createMemeImage, getYtMetadata } from './utils.js';
 import { getGameMenu, startTicTacToe, handleTicTacToeMove, startSuit, handleSuitPlay, handleSuitReset, startTebakKata, handleTebakLetter, handleTebakHint, startMathQuiz, handleMathAnswer, startTebakFf, handleTebakFfAnswer } from './games.js';
 import { getUserUsage, addUsage, getRemainingUsage, getDailyLimit, getExtraQuota } from './usage.js';
 import { TOPUP_PACKAGES, createTransaction, checkTransactionStatus, isPakasirConfigured } from './payment.js';
+import { toolHandlers } from './tools.js';
 
 const BOT_START_TIME = Date.now();
 const activePolls = new Map();
@@ -31,7 +35,12 @@ if (!fs.existsSync(taskDir)) {
 }
 
 
-const bot = new Telegraf(config.telegramToken, { handlerTimeout: Infinity });
+const bot = new Telegraf(config.telegramToken, {
+  handlerTimeout: Infinity,
+  telegram: {
+    apiRoot: config.telegramApiRoot
+  }
+});
 
 
 const sessions = new Map();
@@ -95,19 +104,135 @@ function clearSessionHistory(chatId) {
 }
 
 
+function getCustomLoadingText(text, personality) {
+  const clean = text.trim();
+  
+  if (!personality || personality === 'biasa') {
+    return `⏳ ${text}`;
+  }
+
+  if (personality === 'wibu') {
+    if (clean === 'Berpikir...') {
+      return `🌸 *Chotto matte!* Sedang berpikir desu... (｀^´) ☕`;
+    }
+    if (clean.startsWith('Menjalankan alat:')) {
+      const tool = clean.replace('Menjalankan alat:', '').trim();
+      return `✨ Memanggil keajaiban alat: *${tool}*... Sugoi! 🌸`;
+    }
+    if (clean.startsWith('Menjalankan') && clean.endsWith('alat...')) {
+      return `✨ Menyiapkan alat-alat sihir untukmu... 🌸`;
+    }
+    if (clean.includes('Mengunduh')) {
+      return `📥 Sedang mendownload file-nya dulu ya, Senpai! 🌸`;
+    }
+    if (clean.includes('Menganalisis') || clean.includes('Mengekstrak')) {
+      return `🔍 Menganalisis dengan mata keajaiban AI desu~ ✨`;
+    }
+    return `🌸 ${text} desu~ ✨`;
+  }
+
+  if (personality === 'tsundere') {
+    if (clean === 'Berpikir...') {
+      return `😒 H-hah? Aku terpaksa mikir dulu ya! B-bukan karena ingin membantumu, baka! (////)`;
+    }
+    if (clean.startsWith('Menjalankan alat:')) {
+      const tool = clean.replace('Menjalankan alat:', '').trim();
+      return `😒 Menjalankan *${tool}* nih! Jangan membuatku repot lagi ya! 💢`;
+    }
+    if (clean.startsWith('Menjalankan') && clean.endsWith('alat...')) {
+      return `😒 Menyiapkan alat dulu! Jangan melihatku seperti itu! 💢`;
+    }
+    if (clean.includes('Mengunduh')) {
+      return `📥 Mengunduh filenya... Cepat berterima kasih padaku! 😒`;
+    }
+    if (clean.includes('Menganalisis') || clean.includes('Mengekstrak')) {
+      return `🔍 Menganalisis... Huh, jangan berharap hasilnya terlalu bagus ya! 😒`;
+    }
+    return `😒 ${text}...`;
+  }
+
+  if (personality === 'sarcastic') {
+    if (clean === 'Berpikir...') {
+      return `🎭 Coba mikir keras dulu ya, semoga pertanyaannya gak aneh-aneh... 🙄`;
+    }
+    if (clean.startsWith('Menjalankan alat:')) {
+      const tool = clean.replace('Menjalankan alat:', '').trim();
+      return `🎭 Menjalankan alat *${tool}*... Semoga ga meledak sistemnya ya. 💥`;
+    }
+    if (clean.startsWith('Menjalankan') && clean.endsWith('alat...')) {
+      return `🎭 Mempersiapkan alat-alat berat... Mundur sana sedikit. 💥`;
+    }
+    if (clean.includes('Mengunduh')) {
+      return `📥 Mendownload data... Koneksi internetmu lancar kan? 🙄`;
+    }
+    if (clean.includes('Menganalisis') || clean.includes('Mengekstrak')) {
+      return `🔍 Menganalisis... Membaca isi pikiran gambarmu yang misterius... 🧠`;
+    }
+    return `🎭 ${text}... Semoga beruntung.`;
+  }
+
+  if (personality === 'professional') {
+    if (clean === 'Berpikir...') {
+      return `👔 Sedang memproses informasi dan menyusun jawaban secara sistematis...`;
+    }
+    if (clean.startsWith('Menjalankan alat:')) {
+      const tool = clean.replace('Menjalankan alat:', '').trim();
+      return `👔 Mengeksekusi sub-sistem operasional: *${tool}*...`;
+    }
+    if (clean.includes('Mengunduh')) {
+      return `📥 Sedang mengunduh aset dokumen yang diperlukan...`;
+    }
+    if (clean.includes('Menganalisis') || clean.includes('Mengekstrak')) {
+      return `🔍 Sedang menganalisis struktur data secara komprehensif...`;
+    }
+    return `👔 ${text}...`;
+  }
+
+  if (personality === 'mentor') {
+    if (clean === 'Berpikir...') {
+      return `🎓 Sedang menganalisis alur logika dan merumuskan penjelasan terbaik...`;
+    }
+    if (clean.startsWith('Menjalankan alat:')) {
+      const tool = clean.replace('Menjalankan alat:', '').trim();
+      return `🎓 Menjalankan modul *${tool}* untuk memproses data...`;
+    }
+    if (clean.includes('Mengunduh')) {
+      return `📥 Mengunduh resource yang dibutuhkan untuk analisis...`;
+    }
+    if (clean.includes('Menganalisis') || clean.includes('Mengekstrak')) {
+      return `🔍 Menelaah data masukan menggunakan model kognitif AI...`;
+    }
+    return `🎓 ${text}...`;
+  }
+
+  return `⏳ ${text}`;
+}
+
 function createStatusUpdater(ctx) {
   let statusMessage = null;
   return {
     update: async (text) => {
       try {
+        const chatId = ctx.chat.id;
+        const personalityPath = path.join(config.memoryDir, `${chatId}_personality.txt`);
+        let personality = 'biasa';
+        if (fs.existsSync(personalityPath)) {
+          try {
+            personality = fs.readFileSync(personalityPath, 'utf8').trim();
+          } catch (e) {}
+        }
+
+        const formattedText = getCustomLoadingText(text, personality);
+
         if (!statusMessage) {
-          statusMessage = await ctx.reply(`⏳ ${text}`);
+          statusMessage = await ctx.reply(formattedText, { parse_mode: 'Markdown' });
         } else {
           await ctx.telegram.editMessageText(
             ctx.chat.id,
             statusMessage.message_id,
             undefined,
-            `⏳ ${text}`
+            formattedText,
+            { parse_mode: 'Markdown' }
           );
         }
       } catch (err) {
@@ -162,7 +287,10 @@ function getStartMarkup(firstName) {
       Markup.button.callback('🧠 Memori Saya', 'ai_template:memori')
     ],
     [
-      Markup.button.callback('📊 Sisa Kuota (Limit)', 'ai_template:limit'),
+      Markup.button.callback('🧠 Sifat AI Agent', 'sifat:menu'),
+      Markup.button.callback('📊 Sisa Kuota', 'ai_template:limit')
+    ],
+    [
       Markup.button.callback('📖 Panduan Lengkap', 'ai_template:help')
     ]
   ]);
@@ -182,11 +310,12 @@ bot.help((ctx) => {
 /ai \`[perintah]\` — Agent AI serba bisa
 Contoh:
 - \`/ai buatkan web kopi kekinian lalu zip\`
-- \`/ai install axios lalu buat script fetch API
+- \`/ai install axios lalu buat script fetch API\`
 
 *🖼️ Gambar & Visual:*
 /img \`[deskripsi]\` — Buat gambar AI (Pollinations)
 - \`/img kucing astronot di luar angkasa\`
+📷 Kirim/balas foto dengan \`/ocr\` atau \`/baca\` → Ekstrak teks dari foto
 📷 Kirim foto → Analisis visual otomatis (tambah caption jika ada pertanyaan)
 
 *🔍 Pencarian & Info:*
@@ -194,6 +323,7 @@ Contoh:
 /cuaca \`[kota]\` — Cuaca real-time
 /kripto \`[nama koin]\` — Harga cryptocurrency
 /saham \`[ticker]\` — Harga saham Indonesia & US
+/krl \`[stasiun]\` — Cek jadwal KRL Commuterline (Comuline API) 🚆
 
 *📥 Download & Media:*
 /ytmp4 \`[url]\` — Download video YouTube (MP4)
@@ -203,6 +333,10 @@ Contoh:
 /meme \`[topik]\` — Buat meme AI lucu 🎭
 
 *🔧 Tools:*
+/sifat — 🧠 Ganti kepribadian/sifat AI Agent (Wibu, Tsundere, dll.)
+/translate \`[kode_bahasa]\` \`[teks]\` — Terjemahkan teks (Google Translate) 🌐
+/currency \`[jumlah]\` \`[dari]\` \`[ke]\` — Konversi nilai mata uang 💱
+/shortlink \`[url]\` — Singkat link/URL (TinyURL) 🔗
 /qr \`[teks/url]\` — Buat QR Code
 /model \`[nama]\` — Lihat/ganti model AI
 /memori — Lihat memori/fakta tentang Anda
@@ -211,6 +345,7 @@ Contoh:
 /export — Export riwayat chat ke file
 /stop — 🛑 Hentikan permintaan AI yang sedang berjalan
 /clear — Hapus memori sesi ini
+/help — Tampilkan panduan lengkap penggunaan bot
 
 *🎤 Input Lainnya:*
 • Kirim *pesan suara* → transkripsi + proses AI
@@ -329,6 +464,49 @@ bot.command(['memori', 'memory'], async (ctx) => {
   }
 });
 
+bot.command('sifat', async (ctx) => {
+  const keyboard = Markup.inlineKeyboard([
+    [
+      Markup.button.callback('🤖 Biasa (Default)', 'sifat:biasa'),
+      Markup.button.callback('🌸 Wibu / Otaku', 'sifat:wibu')
+    ],
+    [
+      Markup.button.callback('😒 Tsundere', 'sifat:tsundere'),
+      Markup.button.callback('🎭 Sarkastik (Ketus)', 'sifat:sarcastic')
+    ],
+    [
+      Markup.button.callback('👔 Profesional', 'sifat:professional'),
+      Markup.button.callback('🎓 Mentor Coding', 'sifat:mentor')
+    ],
+    [
+      Markup.button.callback('🔙 Kembali ke Menu Utama', 'ai_template:start')
+    ]
+  ]);
+
+  const chatId = ctx.chat.id;
+  const personalityPath = path.join(config.memoryDir, `${chatId}_personality.txt`);
+  let currentSifat = 'Biasa (Default) 🤖';
+  if (fs.existsSync(personalityPath)) {
+    try {
+      const key = fs.readFileSync(personalityPath, 'utf8').trim();
+      const mapping = {
+        biasa: 'Biasa (Default) 🤖',
+        wibu: '🌸 Wibu / Otaku',
+        tsundere: '😒 Tsundere',
+        sarcastic: '🎭 Sarkastik (Ketus)',
+        professional: '👔 Profesional',
+        mentor: '🎓 Mentor Coding'
+      };
+      currentSifat = mapping[key] || 'Biasa (Default) 🤖';
+    } catch (e) {}
+  }
+
+  await ctx.reply(`🧠 *Pilih Sifat & Kepribadian AI Agent Anda* 🧠\n\nSifat saat ini: *${currentSifat}*\n\nSilakan pilih salah satu kepribadian di bawah ini:`, {
+    parse_mode: 'Markdown',
+    ...keyboard
+  });
+});
+
 async function editToTemplate(ctx, text) {
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.callback('🔙 Kembali ke Utama', 'ai_template:start')]
@@ -435,25 +613,119 @@ bot.action(/^ai_template:(.+)$/, async (ctx) => {
 • /ai \`[perintah]\` — Jalankan perintah AI
 • Kirim file/foto/suara langsung untuk diproses AI
 
-*🖼️ Gambar & Media:*
+*🖼️ Gambar & Visual:*
 • /img \`[deskripsi]\` — Buat gambar AI
 • /meme \`[topik]\` — Buat meme lucu 🎭
 • /tts \`[teks]\` — Teks menjadi pesan suara 🗣️
 • /download \`[url]\` — Unduh video (YT, TikTok)
 • /ytmp4 & /ytmp3 — Unduh video/audio YouTube
+• Kirim/balas foto dengan \`/ocr\` atau \`/baca\` untuk membaca teks 📝
 
 *🔍 Pencarian & Info:*
 • /cari \`[kueri]\` — Wikipedia
 • /cuaca \`[kota]\` — Prakiraan Cuaca BMKG
 • /kripto \`[koin]\` — Harga koin crypto
 • /saham \`[ticker]\` — Harga saham Indonesia & US
+• /krl \`[stasiun]\` — Jadwal KRL Commuterline 🚆
 
 *🔧 Tools & Sesi:*
+• /sifat — Ganti sifat/kepribadian AI (Wibu, Tsundere, dll.) 🧠
+• /translate \`[bahasa]\` \`[teks]\` — Terjemahkan teks 🌐
+• /currency \`[jumlah]\` \`[dari]\` \`[ke]\` — Konversi nilai mata uang 💱
+• /shortlink \`[url]\` — Singkat link/URL 🔗
+• /ocr — Baca/ekstrak teks dari foto 📝
 • /limit — Cek sisa kuota harian Anda
 • /model — Ganti model AI
 • /memori — Lihat fakta tersimpan
 • /clear — Bersihkan riwayat chat sesi ini
 • /status — Uptime & status bot`;
+    await editToTemplate(ctx, text);
+  }
+});
+
+bot.action(/^sifat:(.+)$/, async (ctx) => {
+  const chosen = ctx.match[1];
+  const chatId = ctx.chat.id;
+  const personalityPath = path.join(config.memoryDir, `${chatId}_personality.txt`);
+
+  try {
+    await ctx.answerCbQuery();
+    
+    if (chosen === 'menu') {
+      const keyboard = Markup.inlineKeyboard([
+        [
+          Markup.button.callback('🤖 Biasa (Default)', 'sifat:biasa'),
+          Markup.button.callback('🌸 Wibu / Otaku', 'sifat:wibu')
+        ],
+        [
+          Markup.button.callback('😒 Tsundere', 'sifat:tsundere'),
+          Markup.button.callback('🎭 Sarkastik (Ketus)', 'sifat:sarcastic')
+        ],
+        [
+          Markup.button.callback('👔 Profesional', 'sifat:professional'),
+          Markup.button.callback('🎓 Mentor Coding', 'sifat:mentor')
+        ],
+        [
+          Markup.button.callback('🔙 Kembali ke Menu Utama', 'ai_template:start')
+        ]
+      ]);
+
+      let currentSifat = 'Biasa (Default) 🤖';
+      if (fs.existsSync(personalityPath)) {
+        try {
+          const key = fs.readFileSync(personalityPath, 'utf8').trim();
+          const mapping = {
+            biasa: 'Biasa (Default) 🤖',
+            wibu: '🌸 Wibu / Otaku',
+            tsundere: '😒 Tsundere',
+            sarcastic: '🎭 Sarkastik (Ketus)',
+            professional: '👔 Profesional',
+            mentor: '🎓 Mentor Coding'
+          };
+          currentSifat = mapping[key] || 'Biasa (Default) 🤖';
+        } catch (e) {}
+      }
+
+      await ctx.editMessageText(`🧠 *Pilih Sifat & Kepribadian AI Agent Anda* 🧠\n\nSifat saat ini: *${currentSifat}*\n\nSilakan pilih salah satu kepribadian di bawah ini:`, {
+        parse_mode: 'Markdown',
+        ...keyboard
+      });
+      return;
+    }
+
+    if (chosen === 'biasa') {
+      if (fs.existsSync(personalityPath)) {
+        fs.unlinkSync(personalityPath);
+      }
+    } else {
+      fs.writeFileSync(personalityPath, chosen, 'utf8');
+    }
+
+    const mapping = {
+      biasa: 'Biasa (Default) 🤖',
+      wibu: 'Wibu / Otaku 🌸',
+      tsundere: 'Tsundere 😒',
+      sarcastic: 'Sarkastik (Ketus) 🎭',
+      professional: 'Profesional 👔',
+      mentor: 'Mentor Coding 🎓'
+    };
+
+    const sifatName = mapping[chosen] || 'Biasa (Default) 🤖';
+    
+    const keyboard = Markup.inlineKeyboard([
+      [
+        Markup.button.callback('🔙 Pilih Sifat Lain', 'sifat:menu'),
+        Markup.button.callback('🔙 Menu Utama', 'ai_template:start')
+      ]
+    ]);
+    
+    await ctx.editMessageText(`✅ Sifat AI Agent berhasil diubah menjadi: *${sifatName}*\n\nSilakan ajak bicara AI untuk melihat perubahannya!`, {
+      parse_mode: 'Markdown',
+      ...keyboard
+    });
+  } catch (err) {
+    console.error('Error setting personality:', err);
+    await ctx.reply(`❌ Gagal mengubah sifat AI: ${err.message}`);
   }
 });
 
@@ -1393,6 +1665,141 @@ Minta AI melakukan apa saja! Cukup ketik perintah Anda setelah \`/ai\`.
 }
 
 
+bot.command(['translate', 'terjemah'], async (ctx) => {
+  const text = ctx.message.text.trim();
+  const replyMsg = ctx.message.reply_to_message;
+  
+  const args = text.split(/\s+/).slice(1);
+  let targetLang = args[0];
+  let textToTranslate = args.slice(1).join(' ').trim();
+  
+  if (!targetLang) {
+    return ctx.reply('Silakan berikan kode bahasa tujuan.\nFormat: `/translate <kode_bahasa> <teks>` atau balas pesan dengan `/translate <kode_bahasa>`\nContoh: `/translate en halo apa kabar` atau `/translate ja` (sambil membalas pesan).', { parse_mode: 'Markdown' });
+  }
+  
+  if (!textToTranslate && replyMsg && replyMsg.text) {
+    textToTranslate = replyMsg.text;
+  }
+  
+  if (!textToTranslate) {
+    return ctx.reply('Silakan tentukan teks yang ingin diterjemahkan.\nContoh: `/translate en halo apa kabar`', { parse_mode: 'Markdown' });
+  }
+  
+  try {
+    const translation = await toolHandlers.translate_text({ text: textToTranslate, targetLang });
+    await ctx.reply(`🌐 *Terjemahan (${targetLang.toUpperCase()}):*\n\n${translation}`, { parse_mode: 'Markdown' });
+  } catch (err) {
+    await ctx.reply(`❌ Gagal menerjemahkan: ${err.message}`);
+  }
+});
+
+bot.command(['currency', 'kurs'], async (ctx) => {
+  const text = ctx.message.text.trim();
+  const args = text.split(/\s+/).slice(1);
+  
+  if (args.length < 3) {
+    return ctx.reply('Format salah.\nGunakan: `/currency <jumlah> <dari_mata_uang> <ke_mata_uang>`\nContoh: `/currency 100 usd idr` atau `/currency 50000 idr usd`', { parse_mode: 'Markdown' });
+  }
+  
+  const amount = parseFloat(args[0]);
+  const fromCurrency = args[1].toUpperCase();
+  const toCurrency = args[2].toUpperCase();
+  
+  if (isNaN(amount)) {
+    return ctx.reply('⚠️ Jumlah harus berupa angka.', { parse_mode: 'Markdown' });
+  }
+  
+  try {
+    const result = await toolHandlers.currency_converter({ amount, fromCurrency, toCurrency });
+    await ctx.reply(result, { parse_mode: 'Markdown' });
+  } catch (err) {
+    await ctx.reply(`❌ Gagal mengonversi mata uang: ${err.message}`);
+  }
+});
+
+bot.command(['shortlink', 'shorten'], async (ctx) => {
+  const text = ctx.message.text.trim();
+  const args = text.split(/\s+/).slice(1);
+  const url = args[0];
+  
+  if (!url) {
+    return ctx.reply('Silakan berikan URL/link yang ingin disingkat.\nContoh: `/shortlink https://example.com/sangat/panjang`', { parse_mode: 'Markdown' });
+  }
+  
+  try {
+    const result = await toolHandlers.shorten_url({ url });
+    await ctx.reply(result, { parse_mode: 'Markdown' });
+  } catch (err) {
+    await ctx.reply(`❌ Gagal menyingkat URL: ${err.message}`);
+  }
+});
+
+bot.command(['krl', 'jadwalkrl'], async (ctx) => {
+  const text = ctx.message.text.trim();
+  const stationName = text.replace(/^\/(krl|jadwalkrl)\s*/i, '').trim();
+  
+  if (!stationName) {
+    return ctx.reply('Silakan tentukan nama stasiun KRL.\nContoh: `/krl Manggarai` atau `/krl Bogor`', { parse_mode: 'Markdown' });
+  }
+  
+  const status = createStatusUpdater(ctx);
+  await status.update('Mengambil jadwal KRL...');
+  
+  try {
+    const result = await toolHandlers.krl_schedule({ stationName });
+    await status.delete();
+    
+    const match = result.match(/Saved at file path: (.+)/);
+    if (match) {
+      const absPath = path.join(config.workspaceDir, match[1].trim());
+      if (fs.existsSync(absPath)) {
+        const cleanText = result.replace(/\n\nSaved at file path: .+/g, '');
+        const caption = cleanText.length > 1024 ? cleanText.substring(0, 1000) + '...' : cleanText;
+        
+        await ctx.replyWithPhoto({ source: absPath }, { caption, parse_mode: 'Markdown' });
+        
+        if (fs.existsSync(absPath)) {
+          fs.unlinkSync(absPath);
+        }
+        return;
+      }
+    }
+    
+    await ctx.reply(result, { parse_mode: 'Markdown' });
+  } catch (err) {
+    await status.delete();
+    await ctx.reply(`❌ Gagal mengambil jadwal KRL: ${err.message}`);
+  }
+});
+
+bot.command(['ocr', 'baca'], async (ctx) => {
+  const replyMsg = ctx.message.reply_to_message;
+  const photo = ctx.message.photo || (replyMsg && replyMsg.photo);
+  
+  if (!photo) {
+    return ctx.reply('Silakan kirim foto dengan caption `/ocr` atau balas (reply) foto dengan perintah `/ocr` untuk mengekstrak teksnya.', { parse_mode: 'Markdown' });
+  }
+  
+  const status = createStatusUpdater(ctx);
+  await status.update('Mengunduh gambar untuk OCR...');
+  
+  try {
+    const photos = photo;
+    const bestPhoto = photos[photos.length - 1];
+    const fileLink = await ctx.telegram.getFileLink(bestPhoto.file_id);
+    const imageUrl = fileLink.href;
+    
+    await status.update('Mengekstrak dan membaca teks dari gambar dengan AI Vision...');
+    const text = await analyzePhoto(imageUrl, 'Tolong baca dan tuliskan kembali semua teks yang terlihat pada gambar ini. Jangan berikan intro atau penjelasan tambahan, cukup berikan transkrip teksnya saja.');
+    
+    await status.delete();
+    await replySafe(ctx, `📝 *Hasil Ekstraksi Teks (OCR):*\n\n${text}`);
+  } catch (err) {
+    await status.delete();
+    await ctx.reply(`❌ Gagal membaca teks dari gambar: ${err.message}`);
+  }
+});
+
 bot.command('ai', async (ctx) => {
   const text = ctx.message.text.trim();
   const prompt = text.replace(/^\/ai\s*/i, '').trim();
@@ -1459,13 +1866,32 @@ bot.on('document', async (ctx) => {
 });
 
 
-
-
 bot.on('photo', async (ctx) => {
   const caption = ctx.message.caption || '';
   
-  // If there's a caption, let the AI Agent handle it (so they can cartoonify, edit, or ask complex questions)
   if (caption.trim() !== '') {
+    const cleanCaption = caption.trim();
+    if (cleanCaption.startsWith('/ocr') || cleanCaption.startsWith('/baca')) {
+      const status = createStatusUpdater(ctx);
+      await status.update('Mengunduh gambar untuk OCR...');
+      try {
+        const photos = ctx.message.photo;
+        const bestPhoto = photos[photos.length - 1];
+        const fileLink = await ctx.telegram.getFileLink(bestPhoto.file_id);
+        const imageUrl = fileLink.href;
+        
+        await status.update('Mengekstrak dan membaca teks dari gambar dengan AI Vision...');
+        const text = await analyzePhoto(imageUrl, 'Tolong baca dan tuliskan kembali semua teks yang terlihat pada gambar ini. Jangan berikan intro atau penjelasan tambahan, cukup berikan transkrip teksnya saja.');
+        
+        await status.delete();
+        await replySafe(ctx, `📝 *Hasil Ekstraksi Teks (OCR):*\n\n${text}`);
+      } catch (err) {
+        await status.delete();
+        await ctx.reply(`❌ Gagal membaca teks dari gambar: ${err.message}`);
+      }
+      return;
+    }
+
     if (ctx.chat.type !== 'private') {
       const botInfo = ctx.botInfo;
       const botMention = `@${botInfo.username}`;
@@ -1529,40 +1955,62 @@ async function init() {
     console.warn('⚠️ Gagal menyiapkan ffprobe secara otomatis:', err.message);
   }
 
-  try {
-    console.log('Registering bot commands in Telegram menu...');
-    await bot.telegram.setMyCommands([
-      { command: 'ai', description: 'Tanyakan sesuatu atau jalankan perintah AI Agent' },
-      { command: 'game', description: 'Pusat Game Interaktif (Game Center)' },
-      { command: 'tictactoe', description: 'Main Tic Tac Toe lawan AI' },
-      { command: 'suit', description: 'Main Batu Gunting Kertas' },
-      { command: 'tebakkata', description: 'Main Tebak Kata / Hangman' },
-      { command: 'kuismat', description: 'Main Kuis Matematika beruntun' },
-      { command: 'tebakff', description: 'Main Tebak Hero Free Fire' },
-      { command: 'limit', description: 'Cek sisa kuota harian pemakaian AI Anda' },
-      { command: 'topup', description: 'Top-Up kuota limit karakter AI (QRIS/VA)' },
-      { command: 'img', description: 'Buat gambar AI dari deskripsi teks' },
-      { command: 'cari', description: 'Cari informasi di Wikipedia' },
-      { command: 'cuaca', description: 'Cek cuaca terkini di suatu kota' },
-      { command: 'kripto', description: 'Cek harga cryptocurrency saat ini' },
-      { command: 'saham', description: 'Cek harga saham Indonesia (IDX) & Amerika (US)' },
-      { command: 'qr', description: 'Buat QR Code dari teks atau URL' },
-      { command: 'tts', description: 'Ubah teks menjadi pesan suara/audio' },
-      { command: 'meme', description: 'Buat meme AI lucu berdasarkan topik' },
-      { command: 'ytmp4', description: 'Unduh video YouTube menjadi MP4' },
-      { command: 'ytmp3', description: 'Unduh audio YouTube menjadi MP3/M4A' },
-      { command: 'download', description: 'Unduh video dari YouTube, TikTok, dll' },
-      { command: 'model', description: 'Lihat atau ganti model AI' },
-      { command: 'memori', description: 'Lihat fakta/memori yang diingat AI tentang Anda' },
-      { command: 'status', description: 'Cek status dan uptime bot' },
-      { command: 'export', description: 'Ekspor riwayat percakapan sesi ini' },
-      { command: 'stop', description: 'Hentikan proses AI yang sedang berjalan' },
-      { command: 'clear', description: 'Hapus memori percakapan sesi ini' },
-      { command: 'help', description: 'Tampilkan panduan lengkap penggunaan bot' }
-    ]);
-    console.log('Bot commands registered successfully!');
-  } catch (cmdErr) {
-    console.error('⚠️ Gagal meregistrasi command list ke Telegram:', cmdErr.message);
+  const maxRetries = 3;
+  const delayMs = 5000;
+  let registered = false;
+
+  console.log('Registering bot commands in Telegram menu...');
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await bot.telegram.setMyCommands([
+        { command: 'ai', description: 'Tanyakan sesuatu atau jalankan perintah AI Agent' },
+        { command: 'game', description: 'Pusat Game Interaktif (Game Center)' },
+        { command: 'tictactoe', description: 'Main Tic Tac Toe lawan AI' },
+        { command: 'suit', description: 'Main Batu Gunting Kertas' },
+        { command: 'tebakkata', description: 'Main Tebak Kata / Hangman' },
+        { command: 'kuismat', description: 'Main Kuis Matematika beruntun' },
+        { command: 'tebakff', description: 'Main Tebak Hero Free Fire' },
+        { command: 'limit', description: 'Cek sisa kuota harian pemakaian AI Anda' },
+        { command: 'topup', description: 'Top-Up kuota limit karakter AI (QRIS/VA)' },
+        { command: 'img', description: 'Buat gambar AI dari deskripsi teks' },
+        { command: 'cari', description: 'Cari informasi di Wikipedia' },
+        { command: 'cuaca', description: 'Cek cuaca terkini di suatu kota' },
+        { command: 'kripto', description: 'Cek harga cryptocurrency saat ini' },
+        { command: 'saham', description: 'Cek harga saham Indonesia (IDX) & Amerika (US)' },
+        { command: 'qr', description: 'Buat QR Code dari teks atau URL' },
+        { command: 'tts', description: 'Ubah teks menjadi pesan suara/audio' },
+        { command: 'meme', description: 'Buat meme AI lucu berdasarkan topik' },
+        { command: 'ytmp4', description: 'Unduh video YouTube menjadi MP4' },
+        { command: 'ytmp3', description: 'Unduh audio YouTube menjadi MP3/M4A' },
+        { command: 'download', description: 'Unduh video dari YouTube, TikTok, dll' },
+        { command: 'model', description: 'Lihat atau ganti model AI' },
+        { command: 'sifat', description: 'Ubah sifat/kepribadian AI Agent (Wibu, Tsundere, dll.)' },
+        { command: 'memori', description: 'Lihat fakta/memori yang diingat AI tentang Anda' },
+        { command: 'status', description: 'Cek status dan uptime bot' },
+        { command: 'export', description: 'Ekspor riwayat percakapan sesi ini' },
+        { command: 'stop', description: 'Hentikan proses AI yang sedang berjalan' },
+        { command: 'clear', description: 'Hapus memori percakapan sesi ini' },
+        { command: 'help', description: 'Tampilkan panduan lengkap penggunaan bot' },
+        { command: 'translate', description: 'Terjemahkan teks ke bahasa lain (Google Translate)' },
+        { command: 'currency', description: 'Konversi nilai mata uang (Real-time)' },
+        { command: 'shortlink', description: 'Singkat link/URL yang panjang (TinyURL)' },
+        { command: 'krl', description: 'Cek jadwal KRL Commuterline (Comuline API)' },
+        { command: 'ocr', description: 'Ekstrak/baca teks dari gambar (AI Vision)' }
+      ]);
+      console.log('Bot commands registered successfully!');
+      registered = true;
+      break;
+    } catch (cmdErr) {
+      console.error(`⚠️ Attempt ${attempt}/${maxRetries} failed to register commands:`, cmdErr.message);
+      if (attempt < maxRetries) {
+        console.log(`Menunggu ${delayMs / 1000} detik sebelum mencoba kembali...`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+
+  if (!registered) {
+    console.error('❌ Gagal meregistrasi command list ke Telegram setelah beberapa percobaan. Bot tetap dijalankan.');
   }
 
   bot.launch({ dropPendingUpdates: true }, () => {

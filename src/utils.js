@@ -8,6 +8,7 @@ import { Groq } from 'groq-sdk';
 import { Jimp } from 'jimp';
 import AdmZip from 'adm-zip';
 import { config } from './config.js';
+import { igdl, ttdl, fbdown, twitter } from 'btch-downloader';
 
 const USER_AGENTS = [
   // Chrome on Windows
@@ -336,9 +337,47 @@ export async function resolveRedirect(url) {
 }
 
 
+export async function downloadFromBtch(url, outputPath) {
+  let mediaUrl = null;
+  const lowerUrl = url.toLowerCase();
+  
+  try {
+    if (lowerUrl.includes('instagram.com')) {
+      const res = await igdl(url);
+      if (Array.isArray(res) && res.length > 0 && res[0].url) {
+        mediaUrl = res[0].url;
+      } else if (typeof res === 'string' && res.startsWith('http')) {
+        mediaUrl = res;
+      }
+    } else if (lowerUrl.includes('tiktok.com')) {
+      const res = await ttdl(url);
+      if (res && res.video && res.video[0]) {
+        mediaUrl = res.video[0];
+      }
+    } else if (lowerUrl.includes('facebook.com') || lowerUrl.includes('fb.watch')) {
+      const res = await fbdown(url);
+      if (res && (res.HD || res.Normal_video)) {
+        mediaUrl = res.HD || res.Normal_video;
+      }
+    } else if (lowerUrl.includes('twitter.com') || lowerUrl.includes('x.com')) {
+      const res = await twitter(url);
+      if (res && Array.isArray(res.url) && res.url.length > 0) {
+        mediaUrl = res.url[0].hd || res.url[0].sd || (res.url[1] && (res.url[1].hd || res.url[1].sd));
+      }
+    }
+  } catch (err) {
+    console.error('Error in downloadFromBtch extractor:', err.message);
+  }
+  
+  if (!mediaUrl) {
+    throw new Error('Gagal mengekstrak direct URL menggunakan btch-downloader.');
+  }
+  
+  return await downloadTelegramFile(mediaUrl, outputPath);
+}
+
 export async function downloadVideo(url, outputDir, type = 'video', signal = null) {
   const resolvedUrl = await resolveRedirect(url);
-  const ytDlp = await getYtDlpPath();
   
   if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true });
@@ -346,30 +385,33 @@ export async function downloadVideo(url, outputDir, type = 'video', signal = nul
 
   const timestamp = Date.now();
   const prefix = type === 'audio' ? 'aud' : 'vid';
-  const filenameTemplate = path.join(outputDir, `${prefix}_${timestamp}.%(ext)s`);
-  
-  
-  let cmd;
-  if (type === 'audio') {
-    cmd = `"${ytDlp}" -f "bestaudio[ext=m4a]/bestaudio" --no-playlist --no-warnings -o "${filenameTemplate}" "${resolvedUrl}"`;
-  } else {
-    cmd = `"${ytDlp}" -f "best[ext=mp4]/best" --no-playlist --no-warnings -o "${filenameTemplate}" "${resolvedUrl}"`;
-  }
-  
-  console.log(`Executing download command (${type}): ${cmd}`);
+  let downloadedPath = null;
 
-  const binDir = path.resolve(config.binDir);
-  const env = { ...process.env };
-  if (process.platform === 'win32') {
-    const pathKey = Object.keys(env).find(k => k.toLowerCase() === 'path') || 'Path';
-    env[pathKey] = `${binDir};${env[pathKey] || ''}`;
-    env.PATH = env[pathKey];
-    env.Path = env[pathKey];
-  } else {
-    env.PATH = `${binDir}:${env.PATH || ''}`;
-  }
-
+  // 1. Try downloading with yt-dlp first
   try {
+    const ytDlp = await getYtDlpPath();
+    const filenameTemplate = path.join(outputDir, `${prefix}_${timestamp}.%(ext)s`);
+    
+    let cmd;
+    if (type === 'audio') {
+      cmd = `"${ytDlp}" -f "bestaudio[ext=m4a]/bestaudio" --no-playlist --no-warnings -o "${filenameTemplate}" "${resolvedUrl}"`;
+    } else {
+      cmd = `"${ytDlp}" -f "best[ext=mp4]/best" --no-playlist --no-warnings -o "${filenameTemplate}" "${resolvedUrl}"`;
+    }
+    
+    console.log(`Executing download command (${type}) via yt-dlp: ${cmd}`);
+
+    const binDir = path.resolve(config.binDir);
+    const env = { ...process.env };
+    if (process.platform === 'win32') {
+      const pathKey = Object.keys(env).find(k => k.toLowerCase() === 'path') || 'Path';
+      env[pathKey] = `${binDir};${env[pathKey] || ''}`;
+      env.PATH = env[pathKey];
+      env.Path = env[pathKey];
+    } else {
+      env.PATH = `${binDir}:${env.PATH || ''}`;
+    }
+
     const { stdout, stderr } = await execAsync(cmd, {
       maxBuffer: 10 * 1024 * 1024, 
       timeout: 300_000,             
@@ -378,24 +420,39 @@ export async function downloadVideo(url, outputDir, type = 'video', signal = nul
     });
     if (stdout && stdout.trim()) console.log('yt-dlp stdout:', stdout.substring(0, 500));
     if (stderr && stderr.trim()) console.warn('yt-dlp stderr:', stderr.substring(0, 500));
-  } catch (err) {
-    if (err.stdout) console.log('yt-dlp stdout:', err.stdout.substring(0, 500));
-    if (err.stderr) console.warn('yt-dlp stderr:', err.stderr.substring(0, 500));
+
+    const files = fs.readdirSync(outputDir);
+    const downloadedFile = files.find(
+      (file) => file.startsWith(`${prefix}_${timestamp}`) && !file.endsWith('.part') && !file.endsWith('.ytdl') && !file.endsWith('.tmp')
+    );
+
+    if (downloadedFile) {
+      downloadedPath = path.join(outputDir, downloadedFile);
+    }
+  } catch (ytDlpErr) {
+    console.warn('yt-dlp download failed, checking fallback...', ytDlpErr.message);
   }
 
-  
-  const files = fs.readdirSync(outputDir);
-  const downloadedFile = files.find(
-    (file) => file.startsWith(`${prefix}_${timestamp}`) && !file.endsWith('.part') && !file.endsWith('.ytdl') && !file.endsWith('.tmp')
-  );
+  // 2. Fallback to btch-downloader for social media websites if yt-dlp fails
+  if (!downloadedPath) {
+    console.log('Attempting download via btch-downloader fallback...');
+    try {
+      const ext = type === 'audio' ? 'mp3' : 'mp4';
+      const fallbackPath = path.join(outputDir, `${prefix}_${timestamp}.${ext}`);
+      downloadedPath = await downloadFromBtch(resolvedUrl, fallbackPath);
+      console.log('Successfully downloaded via btch-downloader fallback!');
+    } catch (fallbackErr) {
+      console.error('btch-downloader fallback failed:', fallbackErr.message);
+    }
+  }
 
-  if (!downloadedFile) {
+  if (!downloadedPath) {
     throw new Error(
-      `Gagal mengunduh ${type === 'audio' ? 'audio' : 'video'} dari URL ini. Pastikan URL valid dan bisa diakses oleh yt-dlp.\nURL: ${url}`
+      `Gagal mengunduh ${type === 'audio' ? 'audio' : 'video'} dari URL ini. Silakan periksa kembali tautannya.\nURL: ${url}`
     );
   }
 
-  return path.join(outputDir, downloadedFile);
+  return downloadedPath;
 }
 
 export async function getYtMetadata(url) {
@@ -620,7 +677,9 @@ async function getArticleUrl(googleRssUrl) {
     
     return articleUrl || googleRssUrl;
   } catch (error) {
-    console.error("Error decoding Google News URL:", error.message);
+    if (error.response?.status !== 429) {
+      console.warn("Error decoding Google News URL:", error.message);
+    }
     return googleRssUrl;
   }
 }

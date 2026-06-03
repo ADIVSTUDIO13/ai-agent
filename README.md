@@ -25,6 +25,8 @@ Proyek ini dibangun menggunakan teknologi modern berikut:
 *   **Transkripsi Pesan Suara**: Kirim pesan suara (Voice Note) dan bot akan menerjemahkannya ke teks lalu merespons dengan AI.
 *   **Analisis Foto**: Kirim foto beserta pertanyaan Anda untuk analisis visual otomatis.
 *   **Ganti Model (`/model`)**: Ubah model AI yang digunakan secara real-time.
+*   **Kustomisasi Kepribadian (`/sifat`)**: Ubah kepribadian/sifat AI Agent secara instan menggunakan menu tombol interaktif (Pilihan: *Biasa*, *Wibu*, *Tsundere*, *Sarkastik*, *Profesional*, *Mentor Coding*). AI juga dapat mengubah sifatnya secara mandiri saat diperintah melalui percakapan chat.
+*   **Status Loading Kustom**: Tampilan status pemrosesan/loading bot (seperti berpikir atau memanggil alat) akan menyesuaikan gaya bicaranya sesuai kepribadian yang sedang aktif.
 
 ### 2. 📈 Informasi Pasar Real-Time (dengan Grafik Premium)
 *   **💰 Harga Kripto (`/kripto [nama/simbol]`)**:
@@ -107,6 +109,7 @@ VERCEL_TOKEN=
 | Perintah | Deskripsi |
 | :--- | :--- |
 | `/ai` | Ajukan pertanyaan/perintah umum ke AI Agent |
+| `/sifat` | Ubah kepribadian/sifat AI Agent (Wibu, Tsundere, dll.) secara interaktif |
 | `/saham` | Cek harga saham (Indonesia & US) + Grafik tren + Logo |
 | `/kripto` | Cek harga cryptocurrency + Grafik tren |
 | `/cuaca` | Prakiraan Cuaca BMKG terbaru |
