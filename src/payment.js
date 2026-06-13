@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
 import { config } from './config.js';
-import { addExtraQuota } from './usage.js';
+import { addExtraQuota, addPremiumDays } from './usage.js';
 
 const ACTIVE_TX_FILE = path.join(config.memoryDir, 'active_transactions.json');
 
@@ -11,7 +11,8 @@ export const TOPUP_PACKAGES = [
   { id: 'paket_hemat', name: '📦 Paket Hemat', amount: 2000, quota: 20000, desc: 'Top-up 20.000 karakter' },
   { id: 'paket_standar', name: '🚀 Paket Standar', amount: 8000, quota: 100000, desc: 'Top-up 100.000 karakter' },
   { id: 'paket_premium', name: '💎 Paket Premium', amount: 15000, quota: 250000, desc: 'Top-up 250.000 karakter' },
-  { id: 'paket_sultan', name: '👑 Paket Sultan', amount: 50000, quota: 1000000, desc: 'Top-up 1.000.000 karakter' }
+  { id: 'paket_sultan', name: '👑 Paket Sultan', amount: 50000, quota: 1000000, desc: 'Top-up 1.000.000 karakter' },
+  { id: 'member_bulanan', name: '👑 Member Bulanan Premium', amount: 30000, quota: 0, desc: 'Buka semua model AI & kuota harian tak terbatas selama 30 hari' }
 ];
 
 // Helper to load active transactions
@@ -109,10 +110,17 @@ export async function checkTransactionStatus(orderId, amount) {
       if (transaction.status === 'completed') {
         tx.status = 'completed';
         const pack = TOPUP_PACKAGES.find(p => p.id === tx.packageId);
-        addExtraQuota(tx.chatId, pack.quota);
+        if (pack) {
+          if (pack.id === 'member_bulanan') {
+            addPremiumDays(tx.chatId, 30);
+          } else {
+            addExtraQuota(tx.chatId, pack.quota);
+          }
+        }
+        const savedPackId = tx.packageId;
         delete active[orderId];
         saveActiveTransactions(active);
-        return { status: 'completed' };
+        return { status: 'completed', packageId: savedPackId };
       }
       return { status: transaction.status || 'pending' };
     }
