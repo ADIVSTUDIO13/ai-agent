@@ -1325,6 +1325,178 @@ const formatSshMonitorResults = (results) => {
   return report;
 };
 
+const searchGoogle = async (query, signal) => {
+  console.log(`Searching Google for: ${query}`);
+  const url = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+  const response = await axios.get(url, {
+    headers: getBypassHeaders('www.google.com'),
+    timeout: 10000,
+    signal: signal || undefined
+  });
+
+  const $ = cheerio.load(response.data);
+  const results = [];
+
+  $('div.g').each((i, elem) => {
+    if (results.length >= 5) return;
+    
+    const titleElem = $(elem).find('h3');
+    const title = titleElem.text().trim();
+    const link = $(elem).find('a').first().attr('href');
+    
+    let snippet = $(elem).find('div[style*="-webkit-line-clamp"]').text().trim() ||
+                  $(elem).find('div.VwiC3b').text().trim() ||
+                  $(elem).find('span.aCOp2e').text().trim() ||
+                  $(elem).find('.st').text().trim();
+    
+    if (title && link && link.startsWith('http')) {
+      results.push(`Title: ${title}\nSnippet: ${snippet}\nLink: ${link}`);
+    }
+  });
+
+  if (results.length === 0) {
+    $('a').each((i, elem) => {
+      if (results.length >= 5) return;
+      const href = $(elem).attr('href') || '';
+      if (href.startsWith('/url?q=')) {
+        const cleanUrl = href.replace('/url?q=', '').split('&')[0];
+        const title = $(elem).find('h3').text().trim();
+        if (title && cleanUrl && cleanUrl.startsWith('http')) {
+          results.push(`Title: ${title}\nLink: ${cleanUrl}`);
+        }
+      }
+    });
+  }
+  return results;
+};
+
+const searchBing = async (query, signal) => {
+  console.log(`Searching Bing for: ${query}`);
+  const url = `https://www.bing.com/search?q=${encodeURIComponent(query)}`;
+  const response = await axios.get(url, {
+    headers: {
+      'User-Agent': getRandomUserAgent()
+    },
+    timeout: 10000,
+    signal: signal || undefined
+  });
+
+  const $ = cheerio.load(response.data);
+  const results = [];
+
+  $('.b_algo').each((i, elem) => {
+    if (results.length >= 5) return;
+    const titleElem = $(elem).find('h2 a');
+    const title = titleElem.text().trim();
+    const link = titleElem.attr('href');
+    const snippet = $(elem).find('.b_caption p, .b_algo p').text().trim();
+
+    if (title && link && link.startsWith('http')) {
+      results.push(`Title: ${title}\nSnippet: ${snippet}\nLink: ${link}`);
+    }
+  });
+  return results;
+};
+
+const searchDuckDuckGo = async (query, signal) => {
+  console.log(`Searching DuckDuckGo for: ${query}`);
+  const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+  const response = await axios.get(url, {
+    headers: {
+      'User-Agent': getRandomUserAgent()
+    },
+    timeout: 10000,
+    signal: signal || undefined
+  });
+
+  const $ = cheerio.load(response.data);
+  const results = [];
+
+  $('.result').each((i, elem) => {
+    if (results.length >= 5) return;
+    const titleElem = $(elem).find('.result__title a');
+    const title = titleElem.text().trim();
+    const link = titleElem.attr('href');
+    const snippet = $(elem).find('.result__snippet').text().trim();
+
+    if (title && link) {
+      let cleanLink = link;
+      if (link.startsWith('//')) {
+        cleanLink = 'https:' + link;
+      }
+      results.push(`Title: ${title}\nSnippet: ${snippet}\nLink: ${cleanLink}`);
+    }
+  });
+  return results;
+};
+
+const searchYahoo = async (query, signal) => {
+  console.log(`Searching Yahoo for: ${query}`);
+  const url = `https://search.yahoo.com/search?p=${encodeURIComponent(query)}`;
+  const response = await axios.get(url, {
+    headers: getBypassHeaders('search.yahoo.com'),
+    timeout: 10000,
+    signal: signal || undefined
+  });
+
+  const $ = cheerio.load(response.data);
+  const results = [];
+
+  $('.algo').each((i, elem) => {
+    if (results.length >= 5) return;
+
+    const title = $(elem).find('h3.title, h3').text().trim();
+    const rawLink = $(elem).find('a').first().attr('href') || '';
+    const snippet = $(elem).find('.compText, .sh-description').text().trim();
+
+    let link = rawLink;
+    if (rawLink.includes('/RU=')) {
+      try {
+        const parts = rawLink.split('/RU=');
+        if (parts.length > 1) {
+          const encodedUrl = parts[1].split('/')[0];
+          link = decodeURIComponent(encodedUrl);
+        }
+      } catch (e) {
+        console.warn('Failed to decode Yahoo URL:', rawLink);
+      }
+    }
+
+    if (title && link) {
+      results.push(`Title: ${title}\nSnippet: ${snippet}\nLink: ${link}`);
+    }
+  });
+  return results;
+};
+
+const unifiedSearch = async (query, signal) => {
+  const engines = [
+    { name: 'Google', fn: searchGoogle },
+    { name: 'Bing', fn: searchBing },
+    { name: 'DuckDuckGo', fn: searchDuckDuckGo },
+    { name: 'Yahoo', fn: searchYahoo }
+  ];
+
+  for (const engine of engines) {
+    try {
+      const results = await engine.fn(query, signal);
+      if (results && results.length > 0) {
+        console.log(`[Search] ✅ Successful using ${engine.name}`);
+        return {
+          engine: engine.name,
+          results
+        };
+      }
+      console.warn(`[Search] ⚠️ ${engine.name} returned empty, trying next...`);
+    } catch (err) {
+      if (signal && signal.aborted || err.message === 'STOPPED') throw new Error('STOPPED');
+      console.warn(`[Search] ❌ ${engine.name} failed: ${err.message}, trying next...`);
+    }
+  }
+
+  throw new Error('All search engines (Google, Bing, DuckDuckGo, Yahoo) failed or returned no results.');
+};
+
 export const toolHandlers = {
   ssh_monitor_server: async ({ host, username, password, port = 22, privateKey = null }, chatId, signal) => {
     try {
@@ -3360,50 +3532,12 @@ BMKG URL: https://www.bmkg.go.id/cuaca/prakiraan-cuaca-indonesia.bmkg`;
     }
   },
 
-  web_search: async ({ query }) => {
+  web_search: async ({ query }, chatId, signal) => {
     try {
-      console.log(`Searching the web for: ${query}`);
-      const url = `https://search.yahoo.com/search?p=${encodeURIComponent(query)}`;
-      
-      const response = await axios.get(url, {
-        headers: getBypassHeaders('search.yahoo.com'),
-        timeout: 15000
-      });
-
-      const $ = cheerio.load(response.data);
-      const results = [];
-
-      $('.algo').each((i, elem) => {
-        if (results.length >= 5) return;
-        
-        const title = $(elem).find('h3.title, h3').text().trim();
-        const rawLink = $(elem).find('a').first().attr('href') || '';
-        const snippet = $(elem).find('.compText, .sh-description').text().trim();
-        
-        let link = rawLink;
-        if (rawLink.includes('/RU=')) {
-          try {
-            const parts = rawLink.split('/RU=');
-            if (parts.length > 1) {
-              const encodedUrl = parts[1].split('/')[0];
-              link = decodeURIComponent(encodedUrl);
-            }
-          } catch (e) {
-            console.warn('Failed to decode Yahoo URL:', rawLink);
-          }
-        }
-
-        if (title && link) {
-          results.push(`Title: ${title}\nSnippet: ${snippet}\nLink: ${link}`);
-        }
-      });
-
-      if (results.length === 0) {
-        return `No web search results found for "${query}".`;
-      }
-
-      return `Web Search Results for "${query}":\n\n${results.join('\n\n')}`;
+      const { engine, results } = await unifiedSearch(query, signal);
+      return `Search Results for "${query}" (Source: ${engine}):\n\n${results.join('\n\n')}`;
     } catch (err) {
+      if (signal && signal.aborted || err.message === 'STOPPED') throw new Error('STOPPED');
       console.error('Web search failed:', err);
       return `Failed to search the web: ${err.message}`;
     }
@@ -4704,63 +4838,12 @@ Keep the length around 200-300 words.`;
 
   google_search: async ({ query }, chatId, signal) => {
     try {
-      console.log(`Searching Google for: ${query}`);
-      const url = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
-      
-      const response = await axios.get(url, {
-        headers: getBypassHeaders('www.google.com'),
-        timeout: 15000,
-        signal: signal || undefined
-      });
-
-      const $ = cheerio.load(response.data);
-      const results = [];
-
-      $('div.g').each((i, elem) => {
-        if (results.length >= 5) return;
-        
-        const titleElem = $(elem).find('h3');
-        const title = titleElem.text().trim();
-        const link = $(elem).find('a').first().attr('href');
-        
-        let snippet = $(elem).find('div[style*="-webkit-line-clamp"]').text().trim() ||
-                      $(elem).find('div.VwiC3b').text().trim() ||
-                      $(elem).find('span.aCOp2e').text().trim() ||
-                      $(elem).find('.st').text().trim();
-        
-        if (title && link && link.startsWith('http')) {
-          results.push(`Title: ${title}\nSnippet: ${snippet}\nLink: ${link}`);
-        }
-      });
-
-      if (results.length === 0) {
-        $('a').each((i, elem) => {
-          if (results.length >= 5) return;
-          const href = $(elem).attr('href') || '';
-          if (href.startsWith('/url?q=')) {
-            const cleanUrl = href.replace('/url?q=', '').split('&')[0];
-            const title = $(elem).find('h3').text().trim();
-            if (title && cleanUrl && cleanUrl.startsWith('http')) {
-              results.push(`Title: ${title}\nLink: ${cleanUrl}`);
-            }
-          }
-        });
-      }
-
-      if (results.length === 0) {
-        console.log('No direct Google results parsed. Falling back to Yahoo...');
-        return await toolHandlers.web_search({ query }, chatId, signal);
-      }
-
-      return `Google Search Results for "${query}":\n\n${results.join('\n\n')}`;
+      const { engine, results } = await unifiedSearch(query, signal);
+      return `Search Results for "${query}" (Source: ${engine}):\n\n${results.join('\n\n')}`;
     } catch (err) {
       if (signal && signal.aborted || err.message === 'STOPPED') throw new Error('STOPPED');
-      console.error('Google search error, falling back to Yahoo search:', err.message);
-      try {
-        return await toolHandlers.web_search({ query }, chatId, signal);
-      } catch (fallbackErr) {
-        return `Failed to search Google and Yahoo: ${fallbackErr.message}`;
-      }
+      console.error('Google search failed:', err);
+      return `Failed to search Google: ${err.message}`;
     }
   },
 
