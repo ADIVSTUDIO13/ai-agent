@@ -11,6 +11,7 @@ import mime from 'mime';
 import * as cheerio from 'cheerio';
 import { Jimp } from 'jimp';
 import Groq from 'groq-sdk';
+import chalk from 'chalk';
 import { 
   startTicTacToe, 
   startSuit, 
@@ -1326,7 +1327,7 @@ const formatSshMonitorResults = (results) => {
 };
 
 const searchGoogle = async (query, signal) => {
-  console.log(`Searching Google for: ${query}`);
+  console.log(chalk.cyan(`[Google] Searching for: "${query}"`));
   const url = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
   const response = await axios.get(url, {
     headers: getBypassHeaders('www.google.com'),
@@ -1371,7 +1372,7 @@ const searchGoogle = async (query, signal) => {
 };
 
 const searchBing = async (query, signal) => {
-  console.log(`Searching Bing for: ${query}`);
+  console.log(chalk.cyan(`[Bing] Searching for: "${query}"`));
   const url = `https://www.bing.com/search?q=${encodeURIComponent(query)}`;
   const response = await axios.get(url, {
     headers: {
@@ -1399,7 +1400,7 @@ const searchBing = async (query, signal) => {
 };
 
 const searchDuckDuckGo = async (query, signal) => {
-  console.log(`Searching DuckDuckGo for: ${query}`);
+  console.log(chalk.cyan(`[DuckDuckGo] Searching for: "${query}"`));
   const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
   const response = await axios.get(url, {
     headers: {
@@ -1431,7 +1432,7 @@ const searchDuckDuckGo = async (query, signal) => {
 };
 
 const searchYahoo = async (query, signal) => {
-  console.log(`Searching Yahoo for: ${query}`);
+  console.log(chalk.cyan(`[Yahoo] Searching for: "${query}"`));
   const url = `https://search.yahoo.com/search?p=${encodeURIComponent(query)}`;
   const response = await axios.get(url, {
     headers: getBypassHeaders('search.yahoo.com'),
@@ -1470,6 +1471,7 @@ const searchYahoo = async (query, signal) => {
 };
 
 const unifiedSearch = async (query, signal) => {
+  console.log(chalk.magenta.bold(`\n[Search Process] Starting search for query: "${query}"`));
   const engines = [
     { name: 'Google', fn: searchGoogle },
     { name: 'Bing', fn: searchBing },
@@ -1481,16 +1483,16 @@ const unifiedSearch = async (query, signal) => {
     try {
       const results = await engine.fn(query, signal);
       if (results && results.length > 0) {
-        console.log(`[Search] ✅ Successful using ${engine.name}`);
+        console.log(chalk.green.bold(`[Search Process] ✅ Success using ${engine.name} (Found ${results.length} results)`));
         return {
           engine: engine.name,
           results
         };
       }
-      console.warn(`[Search] ⚠️ ${engine.name} returned empty, trying next...`);
+      console.warn(chalk.yellow(`[Search Process] ⚠️ ${engine.name} returned 0 results, trying next...`));
     } catch (err) {
       if (signal && signal.aborted || err.message === 'STOPPED') throw new Error('STOPPED');
-      console.warn(`[Search] ❌ ${engine.name} failed: ${err.message}, trying next...`);
+      console.warn(chalk.red(`[Search Process] ❌ ${engine.name} failed: ${err.message}, trying next...`));
     }
   }
 
