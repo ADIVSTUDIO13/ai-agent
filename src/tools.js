@@ -2187,6 +2187,40 @@ export const toolHandlers = {
       }
     }
 
+    // Anti-lazy check for file redirection/creation in execute_command
+    if (/>|>>|tee\b/i.test(command)) {
+      const LAZY_PATTERNS = [
+        { re: /\/\/\s*TODO/i,                label: '// TODO' },
+        { re: /\/\/\s*\.\.\./,               label: '// ...' },
+        { re: /\/\/\s*implement/i,            label: '// implement ...' },
+        { re: /\/\/\s*add.*logic.*here/i,     label: '// add logic here' },
+        { re: /\/\/\s*add.*parsing.*here/i,   label: '// add parsing here' },
+        { re: /\/\/\s*add.*code.*here/i,      label: '// add code here' },
+        { re: /\/\/\s*handle.*here/i,         label: '// handle here' },
+        { re: /\/\/\s*insert.*here/i,         label: '// insert here' },
+        { re: /\/\/\s*put.*code.*here/i,      label: '// put code here' },
+        { re: /\/\/\s*write.*here/i,          label: '// write here' },
+        { re: /\/\/\s*your.*code/i,           label: '// your code' },
+        { re: /\/\*\s*TODO\s*\*\//i,          label: '/* TODO */' },
+        { re: /\/\*\s*\.\.\.\s*\*\//,         label: '/* ... */' },
+        { re: /\/\/\s*rest of the code/i,     label: '// rest of the code' },
+        { re: /\/\/\s*more.*code/i,           label: '// more code' },
+        { re: /\/\/\s*and so on/i,            label: '// and so on' },
+        { re: /\/\/\s*etc\./i,                label: '// etc.' },
+        { re: /\/\/\s*coming soon/i,          label: '// coming soon' },
+        { re: /\bplaceholder\b/i,             label: 'placeholder' },
+        { re: /mock.*implementation/i,        label: 'mock implementation' },
+        { re: /stub.*function/i,              label: 'stub function' },
+        { re: /#\s*TODO/i,                    label: '# TODO (Python/Shell)' },
+        { re: /#\s*\.\.\./,                   label: '# ... (Python/Shell)' },
+        { re: /#\s*implement/i,               label: '# implement (Python)' },
+      ];
+      const hits = LAZY_PATTERNS.filter(p => p.re.test(command)).map(p => p.label);
+      if (hits.length > 0) {
+        return `Error: Command blocked. Terdeteksi upaya penulisan kode tidak lengkap/placeholder (${hits.join(', ')}) menggunakan terminal command. Pengguna mewajibkan seluruh kode ditulis secara LENGKAP tanpa disembunyikan.`;
+      }
+    }
+
     try {
       console.log(`Executing command in sandbox: ${command}`);
       const binDir = path.resolve(config.binDir);

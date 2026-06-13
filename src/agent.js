@@ -877,6 +877,47 @@ export async function runAgent(chatId, userPrompt, history, onStatusUpdate, sign
     history.push(historyMessage);
 
     if (toolCalls.length === 0) {
+      // ── Anti-lazy code detector in chat response ───────────────────────────
+      if (cleanContent.includes('```')) {
+        const LAZY_PATTERNS = [
+          { re: /\/\/\s*TODO/i,                label: '// TODO' },
+          { re: /\/\/\s*\.\.\./,               label: '// ...' },
+          { re: /\/\/\s*implement/i,            label: '// implement ...' },
+          { re: /\/\/\s*add.*logic.*here/i,     label: '// add logic here' },
+          { re: /\/\/\s*add.*parsing.*here/i,   label: '// add parsing here' },
+          { re: /\/\/\s*add.*code.*here/i,      label: '// add code here' },
+          { re: /\/\/\s*handle.*here/i,         label: '// handle here' },
+          { re: /\/\/\s*insert.*here/i,         label: '// insert here' },
+          { re: /\/\/\s*put.*code.*here/i,      label: '// put code here' },
+          { re: /\/\/\s*write.*here/i,          label: '// write here' },
+          { re: /\/\/\s*your.*code/i,           label: '// your code' },
+          { re: /\/\*\s*TODO\s*\*\//i,          label: '/* TODO */' },
+          { re: /\/\*\s*\.\.\.\s*\*\//,         label: '/* ... */' },
+          { re: /\/\/\s*rest of the code/i,     label: '// rest of the code' },
+          { re: /\/\/\s*more.*code/i,           label: '// more code' },
+          { re: /\/\/\s*and so on/i,            label: '// and so on' },
+          { re: /\/\/\s*etc\./i,                label: '// etc.' },
+          { re: /\/\/\s*coming soon/i,          label: '// coming soon' },
+          { re: /\bplaceholder\b/i,             label: 'placeholder' },
+          { re: /mock.*implementation/i,        label: 'mock implementation' },
+          { re: /stub.*function/i,              label: 'stub function' },
+          { re: /#\s*TODO/i,                    label: '# TODO (Python/Shell)' },
+          { re: /#\s*\.\.\./,                   label: '# ... (Python/Shell)' },
+          { re: /#\s*implement/i,               label: '# implement (Python)' },
+        ];
+        const hits = LAZY_PATTERNS.filter(p => p.re.test(cleanContent)).map(p => p.label);
+        if (hits.length > 0 && i < maxIterations - 1) {
+          console.warn(`[runAgent] ⚠️ LAZY CODE DETECTED in chat response! Found: ${hits.join(', ')}. Forcing retry...`);
+          history.push({
+            role: 'user',
+            content: `PERINGATAN SISTEM: Respon atau kode yang Anda berikan mengandung placeholder atau kode tidak lengkap (${hits.join(', ')}). Harap tulis kembali seluruh kode/respon tersebut secara LENGKAP tanpa menggunakan TODO, komentar ..., atau mock implementation. Tulis lengkap dari awal sampai akhir.`
+          });
+          onStatusUpdate(`Mendeteksi kode tidak lengkap, meminta AI menulis ulang secara lengkap...`);
+          continue;
+        }
+      }
+      // ───────────────────────────────────────────────────────────────────────
+
       return {
         text: fallbackMode 
           ? `⚠️ _[Mode Ringan: limit token tercapai, menggunakan Groq (fitur tools dinonaktifkan)]_\n\n${cleanContent}`
