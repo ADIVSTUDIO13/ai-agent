@@ -331,32 +331,54 @@ async function callGroqWithRetry(groq, model, messages, tools, onStatusUpdate, s
 
         if (isToolUseFailed) {
           const failedGenStr = extractFailedGeneration(error);
-          const parsedTool = parseFailedGeneration(failedGenStr);
-          if (parsedTool) {
-            console.warn(`[Tool Use Recovery] Successfully parsed tool call from failed generation: ${parsedTool.name}`);
-            const simulatedResponse = {
-              choices: [
-                {
-                  message: {
-                    role: 'assistant',
-                    content: null,
-                    tool_calls: [
-                      {
-                        id: 'call_failed_gen_' + Math.random().toString(36).substring(2, 11),
-                        type: 'function',
-                        function: {
-                          name: parsedTool.name,
-                          arguments: typeof parsedTool.arguments === 'string'
-                            ? parsedTool.arguments
-                            : JSON.stringify(parsedTool.arguments)
+          if (failedGenStr) {
+            const parsedTool = parseFailedGeneration(failedGenStr);
+            if (parsedTool) {
+              console.warn(`[Tool Use Recovery] Successfully parsed tool call from failed generation: ${parsedTool.name}`);
+              const simulatedResponse = {
+                choices: [
+                  {
+                    message: {
+                      role: 'assistant',
+                      content: null,
+                      tool_calls: [
+                        {
+                          id: 'call_failed_gen_' + Math.random().toString(36).substring(2, 11),
+                          type: 'function',
+                          function: {
+                            name: parsedTool.name,
+                            arguments: typeof parsedTool.arguments === 'string'
+                              ? parsedTool.arguments
+                              : JSON.stringify(parsedTool.arguments)
+                          }
                         }
-                      }
-                    ]
+                      ]
+                    }
                   }
-                }
-              ]
-            };
-            return simulatedResponse;
+                ]
+              };
+              return simulatedResponse;
+            }
+
+            // Check if it's just conversational text rather than a malformed JSON tool call
+            const trimmedGen = failedGenStr.trim();
+            const looksLikeToolCall = trimmedGen.startsWith('{') && trimmedGen.includes('"name"') && trimmedGen.includes('"arguments"');
+            
+            if (!looksLikeToolCall) {
+              console.warn(`[Tool Use Recovery] Treating failed generation as direct conversational text response.`);
+              const simulatedResponse = {
+                choices: [
+                  {
+                    message: {
+                      role: 'assistant',
+                      content: failedGenStr,
+                      tool_calls: null
+                    }
+                  }
+                ]
+              };
+              return simulatedResponse;
+            }
           }
 
           console.warn(`[Tool Use Error] Groq failed to parse/call tool: ${error.message}. Retrying in 1s (Attempt ${attempt}/${maxRetries})...`);
