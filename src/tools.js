@@ -2050,9 +2050,7 @@ export const toolHandlers = {
       ];
       const hits = LAZY_PATTERNS.filter(p => p.re.test(content)).map(p => p.label);
       if (hits.length > 0) {
-        console.warn(`[write_file] ⚠️  LAZY CODE DETECTED in "${filePath}"! Found: ${hits.join(', ')}. AI should write COMPLETE code only.`);
-        // Tambahkan komentar peringatan di baris pertama file agar mudah terlihat saat review
-        content = `/* ⚠ WARNING: File ini mungkin mengandung kode tidak lengkap. Detected: ${hits.join(', ')} */\n` + content;
+        return `Error: Gagal menulis file. Kode yang Anda berikan terdeteksi mengandung placeholder atau kode tidak lengkap (${hits.join(', ')}). Tolong tulis ulang kodenya secara LENGKAP tanpa ada bagian yang sengaja disembunyikan, dikurangi, atau diwakili oleh komentar TODO/...`;
       } else {
         console.log(`[write_file] ✅ Code quality check passed for "${filePath}" — no placeholders detected.`);
       }
@@ -3082,6 +3080,43 @@ BMKG URL: https://www.bmkg.go.id/cuaca/prakiraan-cuaca-indonesia.bmkg`;
 
       content = content.substring(0, index) + newText + content.substring(index + oldText.length);
     }
+
+    // ── Anti-lazy code detector ──────────────────────────────────────────────
+    const codeExtensions = ['.js', '.ts', '.mjs', '.cjs', '.py', '.sh', '.php', '.rb', '.go', '.java', '.cs', '.cpp', '.c'];
+    const ext = path.extname(filePath).toLowerCase();
+    if (codeExtensions.includes(ext) && typeof content === 'string') {
+      const LAZY_PATTERNS = [
+        { re: /\/\/\s*TODO/i,                label: '// TODO' },
+        { re: /\/\/\s*\.\.\./,               label: '// ...' },
+        { re: /\/\/\s*implement/i,            label: '// implement ...' },
+        { re: /\/\/\s*add.*logic.*here/i,     label: '// add logic here' },
+        { re: /\/\/\s*add.*parsing.*here/i,   label: '// add parsing here' },
+        { re: /\/\/\s*add.*code.*here/i,      label: '// add code here' },
+        { re: /\/\/\s*handle.*here/i,         label: '// handle here' },
+        { re: /\/\/\s*insert.*here/i,         label: '// insert here' },
+        { re: /\/\/\s*put.*code.*here/i,      label: '// put code here' },
+        { re: /\/\/\s*write.*here/i,          label: '// write here' },
+        { re: /\/\/\s*your.*code/i,           label: '// your code' },
+        { re: /\/\*\s*TODO\s*\*\//i,          label: '/* TODO */' },
+        { re: /\/\*\s*\.\.\.\s*\*\//,         label: '/* ... */' },
+        { re: /\/\/\s*rest of the code/i,     label: '// rest of the code' },
+        { re: /\/\/\s*more.*code/i,           label: '// more code' },
+        { re: /\/\/\s*and so on/i,            label: '// and so on' },
+        { re: /\/\/\s*etc\./i,                label: '// etc.' },
+        { re: /\/\/\s*coming soon/i,          label: '// coming soon' },
+        { re: /\bplaceholder\b/i,             label: 'placeholder' },
+        { re: /mock.*implementation/i,        label: 'mock implementation' },
+        { re: /stub.*function/i,              label: 'stub function' },
+        { re: /#\s*TODO/i,                    label: '# TODO (Python/Shell)' },
+        { re: /#\s*\.\.\./,                   label: '# ... (Python/Shell)' },
+        { re: /#\s*implement/i,               label: '# implement (Python)' },
+      ];
+      const hits = LAZY_PATTERNS.filter(p => p.re.test(content)).map(p => p.label);
+      if (hits.length > 0) {
+        return `Error: Gagal mengedit file. Perubahan yang Anda lakukan menyebabkan kode terdeteksi mengandung placeholder atau kode tidak lengkap (${hits.join(', ')}). Tolong tulis ulang perubahannya secara LENGKAP tanpa ada bagian yang sengaja disembunyikan, dikurangi, atau diwakili oleh komentar TODO/...`;
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────────
 
     fs.writeFileSync(resolvedPath, content, 'utf8');
     return `File ${filePath} edited successfully with ${edits.length} change(s).`;
