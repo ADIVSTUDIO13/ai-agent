@@ -7,7 +7,7 @@ dns.setDefaultResultOrder('ipv4first');
 import { runAgent, transcribeAudio, analyzePhoto, getCurrentModel, setModel, setUserModel, getCurrentThinkingLevel, setThinkingLevel, getAvailableModels } from './agent.js';
 import { downloadVideo, getYtDlpPath, getFfmpegPath, getFfprobePath, ensureSandbox, downloadTelegramFile, compressImageIfLarge, compressAudioIfLarge, generateTts, applyTtsVoiceEffect, createMemeImage, getYtMetadata, uploadToTmpfiles, safeMarkdown, enhanceImage, applyVoiceFilter, killProcessTree } from './utils.js';
 import { getGameMenu, startTicTacToe, handleTicTacToeMove, startSuit, handleSuitPlay, handleSuitReset, startTebakKata, handleTebakLetter, handleTebakHint, startMathQuiz, handleMathAnswer, startTebakFf, handleTebakFfAnswer, startTebakGambar, handleTebakGambarAnswer, handleTebakGambarHint, getArcadeMenu, getArcadeShopMenu, buyGachaTicket, drawGacha, exchangePointsForLimit, startSlot, spinSlot, renderSlot, startTebakAngka, handleTebakAngkaInput, startBlackjack, handleBlackjackHit, handleBlackjackStand, startTebakBendera, handleTebakBenderaAnswer, makeBotTttMoveAndRender, nextBlackjackRound, startChess, handleChessClick, makeBotChessMoveAndRender, handleChessForfeit, handleChessAiMove, handleTttAiMove } from './games.js';
-import { getUserUsage, addUsage, getRemainingUsage, getDailyLimit, getExtraQuota, addExtraQuota, addXp, getUserLevel, getUserXp, getTokenUsage, isPremiumUser, getPremiumRemainingTime, addPremiumDays, removePremium, getUserData, setExtraQuota, setPoints, setTickets, setLevel, addPoints, addTickets } from './usage.js';
+import { getUserUsage, addUsage, getRemainingUsage, getDailyLimit, getExtraQuota, addExtraQuota, addXp, getUserLevel, getUserXp, getTokenUsage, isPremiumUser, getPremiumRemainingTime, addPremiumDays, removePremium, getUserData, setExtraQuota, setPoints, setTickets, setLevel, addPoints, addTickets, getUserSubscription, setUserSubscription, handleReferral } from './usage.js';
 import { TOPUP_PACKAGES, createTransaction, checkTransactionStatus, isPakasirConfigured } from './payment.js';
 import { toolHandlers } from './tools.js';
 
@@ -622,6 +622,40 @@ async function replySafe(ctx, text) {
   }
 }
 
+async function replyVpsResult(ctx, result) {
+  try {
+    if (result.length > 4000) {
+      const tempFile = path.join(config.workspaceDir, `vps_output_${Date.now()}.txt`);
+      // Strip markdown code block markers to keep the raw output file clean
+      const plainText = result.replace(/```(bash|json)?/g, '').replace(/\*/g, '').replace(/`/g, '').trim();
+      fs.writeFileSync(tempFile, plainText, 'utf8');
+      
+      await ctx.replyWithDocument(
+        { source: tempFile, filename: 'vps_output.txt' },
+        { 
+          caption: `⚠️ *Output terlalu panjang (${result.length.toLocaleString('id-ID')} karakter).* Hasil eksekusi lengkap dilampirkan pada berkas di bawah:`, 
+          parse_mode: 'Markdown' 
+        }
+      );
+      
+      if (fs.existsSync(tempFile)) {
+        fs.unlinkSync(tempFile);
+      }
+      return;
+    }
+    
+    await ctx.reply(result, { parse_mode: 'Markdown' });
+  } catch (err) {
+    try {
+      // Fallback to sending without Markdown parsing to prevent Bad Request errors
+      const cleanResult = result.replace(/\*/g, '').replace(/`/g, '');
+      await ctx.reply(cleanResult);
+    } catch (err2) {
+      console.error('Failed to send VPS result:', err2.message);
+    }
+  }
+}
+
 function getStartMarkup(firstName) {
   const text = `Halo *${firstName}*! Saya adalah AI Agent Telegram Bot 🤖🚀\n\nSaya bertenaga Groq dan siap membantu Anda melakukan berbagai tugas cerdas, bermain game, membuat gambar, mendownload video, dan banyak lagi!\n\nSilakan gunakan tombol menu interaktif di bawah untuk menjelajah fitur kami secara langsung:`;
   const keyboard = Markup.inlineKeyboard([
@@ -664,7 +698,30 @@ function getStartMarkup(firstName) {
   return { text, keyboard };
 }
 
-bot.start((ctx) => {
+bot.start(async (ctx) => {
+  const payload = ctx.startPayload;
+  const newUserId = ctx.chat.id;
+
+  if (payload && payload.startsWith('ref_')) {
+    const referrerId = payload.replace('ref_', '').trim();
+    if (referrerId) {
+      try {
+        const { handleReferral } = await import('./usage.js');
+        const success = handleReferral(referrerId, newUserId);
+        if (success) {
+          await ctx.reply(`🎉 *Selamat!* Anda berhasil bergabung menggunakan link referral.\n🎁 Anda mendapatkan bonus *500 karakter* kuota limit harian!`, { parse_mode: 'Markdown' });
+          try {
+            await ctx.telegram.sendMessage(referrerId, `🎁 *Referral Sukses!* Teman Anda telah bergabung.\nAnda mendapatkan bonus *1.000 karakter* kuota limit harian!`, { parse_mode: 'Markdown' });
+          } catch (err) {
+            console.error('[Referral] Failed to notify referrer:', err.message);
+          }
+        }
+      } catch (err) {
+        console.error('[Referral] Error handling start payload:', err.message);
+      }
+    }
+  }
+
   const firstName = safeMarkdown(ctx.from.first_name || 'Teman');
   const { text, keyboard } = getStartMarkup(firstName);
   ctx.reply(text, { parse_mode: 'Markdown', ...keyboard });
@@ -920,6 +977,18 @@ bot.command('tebakgambar', async (ctx) => {
       ...tgRes.keyboard
     });
   }
+});
+bot.command('referral', async (ctx) => {
+  const chatId = ctx.chat.id;
+  const botInfo = ctx.botInfo;
+  const botUsername = botInfo.username;
+  const referralLink = `https://t.me/${botUsername}?start=ref_${chatId}`;
+
+  const userData = getUserData(chatId) || {};
+  const referralsCount = userData.referralsCount || 0;
+
+  const msg = `🎁 *Program Referral AI Agent Bot* 🎁\n\nDapatkan kuota gratis tambahan dengan mengundang teman-teman Anda untuk mencoba bot ini!\n\n👥 *Statistik Anda:*\n- Total Teman Diundang: *${referralsCount}* orang\n\n🎯 *Keuntungan:*\n- Anda mendapatkan *+1.000 karakter* kuota limit harian.\n- Teman Anda mendapatkan *+500 karakter* kuota limit harian.\n\n🔗 *Link Undangan Anda:*\n\`${referralLink}\`\n\n_Salin dan bagikan link di atas kepada teman-teman Anda!_`;
+  await ctx.reply(msg, { parse_mode: 'Markdown' });
 });
 
 
@@ -2194,6 +2263,149 @@ bot.action(/^voiceeffect:(.+)$/, async (ctx) => {
 });
 
 
+function sendSubscriptionMenu(ctx, sub) {
+  const statusStr = sub.active ? '🟢 *Aktif*' : '🔴 *Tidak Aktif*';
+  const formatStr = sub.format === 'text' ? '📝 Teks Saja' : (sub.format === 'podcast' ? '🎙️ Podcast Suara' : '📝 Teks + 🎙️ Podcast');
+
+  const text = `⚙️ *Pengaturan Langganan Daily Briefing* ⚙️
+Status: ${statusStr}
+
+Setiap pagi pukul *07:00 WIB*, bot akan mengirimkan ringkasan harian khusus untuk Anda:
+• 🌦️ Cuaca BMKG: *${sub.city}*
+• 🪙 Harga Kripto: *${sub.crypto.toUpperCase()}*
+• 📈 Harga Saham: *${sub.stock.toUpperCase()}*
+• 🎙️ Format Laporan: *${formatStr}*
+
+💡 _Tips: Anda dapat mengubah pengaturan langsung dengan mengetik:_
+\`\`\`
+/subscribe [kota] [kripto] [saham]
+\`\`\`
+_Contoh: \`/subscribe Bandung eth tlkm\`_`;
+
+  const buttons = [];
+  if (sub.active) {
+    buttons.push([Markup.button.callback('🔴 Nonaktifkan Langganan', 'sub_action:toggle')]);
+  } else {
+    buttons.push([Markup.button.callback('🟢 Aktifkan Langganan', 'sub_action:toggle')]);
+  }
+  buttons.push([
+    Markup.button.callback('🌦️ Ubah Kota', 'sub_action:edit_city'),
+    Markup.button.callback('🎙️ Ubah Format', 'sub_action:edit_format')
+  ]);
+  buttons.push([Markup.button.callback('❌ Tutup', 'sub_action:close')]);
+
+  return ctx.reply(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+}
+
+bot.command('subscribe', async (ctx) => {
+  const chatId = ctx.chat.id;
+  const text = ctx.message.text.trim();
+  const args = text.replace(/^\/subscribe\s*/i, '').trim().split(/\s+/).filter(Boolean);
+
+  let currentSub = getUserSubscription(chatId) || {
+    active: false,
+    city: 'Jakarta',
+    crypto: 'btc',
+    stock: 'BBCA',
+    time: '07:00',
+    format: 'both' // 'text', 'podcast', 'both'
+  };
+
+  if (args.length > 0) {
+    currentSub.city = args[0] || currentSub.city;
+    currentSub.crypto = args[1] || currentSub.crypto;
+    currentSub.stock = (args[2] || currentSub.stock).toUpperCase();
+    currentSub.active = true;
+    setUserSubscription(chatId, currentSub);
+
+    return ctx.reply(`✅ *Langganan Aktif!*
+Anda akan menerima Daily Briefing setiap pagi pukul *${currentSub.time} WIB* dengan konfigurasi:
+• 🌦️ Kota Cuaca: *${currentSub.city}*
+• 🪙 Crypto: *${currentSub.crypto.toUpperCase()}*
+• 📊 Saham: *${currentSub.stock}*
+• 📻 Format: *Teks + Podcast Suara*
+
+Gunakan \`/unsubscribe\` untuk membatalkan langganan kapan saja.`, { parse_mode: 'Markdown' });
+  }
+
+  return sendSubscriptionMenu(ctx, currentSub);
+});
+
+bot.command('unsubscribe', async (ctx) => {
+  const chatId = ctx.chat.id;
+  let currentSub = getUserSubscription(chatId);
+  if (!currentSub || !currentSub.active) {
+    return ctx.reply('⚠️ Anda belum berlangganan Daily Briefing.');
+  }
+
+  currentSub.active = false;
+  setUserSubscription(chatId, currentSub);
+  return ctx.reply('📴 *Langganan Dihentikan.* Anda tidak akan lagi menerima Daily Briefing harian. Anda dapat berlangganan kembali kapan saja menggunakan `/subscribe`.', { parse_mode: 'Markdown' });
+});
+
+bot.action(/^sub_action:(.+)$/, async (ctx) => {
+  const actionData = ctx.match[1];
+  const chatId = ctx.chat.id;
+
+  try {
+    let sub = getUserSubscription(chatId) || {
+      active: false,
+      city: 'Jakarta',
+      crypto: 'btc',
+      stock: 'BBCA',
+      time: '07:00',
+      format: 'both'
+    };
+
+    if (actionData === 'close') {
+      await ctx.answerCbQuery();
+      try {
+        await ctx.deleteMessage();
+      } catch (e) {}
+      return;
+    }
+
+    if (actionData === 'toggle') {
+      sub.active = !sub.active;
+      setUserSubscription(chatId, sub);
+      await ctx.answerCbQuery(sub.active ? 'Langganan diaktifkan!' : 'Langganan dinonaktifkan.');
+      try {
+        await ctx.deleteMessage();
+      } catch (e) {}
+      return sendSubscriptionMenu(ctx, sub);
+    }
+
+    if (actionData === 'edit_city') {
+      await ctx.answerCbQuery();
+      await ctx.reply('✍️ *Ubah Kota Cuaca*:\nSilakan ketik perintah `/subscribe [nama_kota]` untuk mengubah kota cuaca Anda.\n\nContoh: `/subscribe Surabaya` atau `/subscribe Bandung btc bbca` untuk mengubah semuanya sekaligus.', { parse_mode: 'Markdown' });
+      return;
+    }
+
+    if (actionData === 'edit_format') {
+      if (sub.format === 'text') {
+        sub.format = 'podcast';
+      } else if (sub.format === 'podcast') {
+        sub.format = 'both';
+      } else {
+        sub.format = 'text';
+      }
+      setUserSubscription(chatId, sub);
+      const formatLabels = { text: 'Teks Saja', podcast: 'Podcast Suara', both: 'Teks + Podcast' };
+      await ctx.answerCbQuery(`Format diubah ke: ${formatLabels[sub.format]}`);
+      try {
+        await ctx.deleteMessage();
+      } catch (e) {}
+      return sendSubscriptionMenu(ctx, sub);
+    }
+  } catch (err) {
+    console.error('Error handling subscription callback:', err);
+    try {
+      await ctx.answerCbQuery('Terjadi kesalahan.');
+    } catch (e) {}
+  }
+});
+
+
 bot.command('stop', async (ctx) => {
   const chatId = ctx.chat.id;
   const args = ctx.message.text.trim().split(/\s+/).slice(1);
@@ -2251,7 +2463,7 @@ bot.command('stop', async (ctx) => {
 });
 
 
-bot.command('status', (ctx) => {
+function getStatusMessage() {
   const uptimeMs = Date.now() - BOT_START_TIME;
   const uptimeSec = Math.floor(uptimeMs / 1000);
   const uptimeMin = Math.floor(uptimeSec / 60);
@@ -2265,18 +2477,56 @@ bot.command('status', (ctx) => {
   const memMb = (mem.rss / 1024 / 1024).toFixed(1);
   const activeSessions = sessions.size;
   const runningRequests = activeProcesses.size;
+  const limitMb = 512;
+  const memPct = Math.min(100, Math.max(0, Math.round((parseFloat(memMb) / limitMb) * 100)));
+  const barFilled = Math.min(10, Math.max(0, Math.round(memPct / 10)));
+  const memBar = '█'.repeat(barFilled) + '░'.repeat(10 - barFilled);
 
-  const statusMsg = `🤖 *Status Bot AI Agent*
-
+  return `🤖 *Status Bot AI Agent*
 🟢 Status: Online
-⏱ Uptime: ${uptimeStr}
-🧠 Model: \`${getCurrentModel()}\`
-💬 Sesi Aktif: ${activeSessions} pengguna
-⚡ Permintaan Berjalan: ${runningRequests}
-💾 Memori: ${memMb} MB
-📦 Platform: Node.js ${process.version}`;
 
-  ctx.reply(statusMsg, { parse_mode: 'Markdown' });
+⏱ Uptime: *${uptimeStr}*
+🧠 Model: \`${getCurrentModel()}\`
+💬 Sesi Aktif: *${activeSessions} pengguna*
+⚡ Request Berjalan: *${runningRequests}*
+💾 Memori: \`[${memBar}]\` *${memMb} MB / ${limitMb} MB*
+📦 Platform: *Node.js ${process.version}*`;
+}
+
+bot.command('status', (ctx) => {
+  const keyboard = Markup.inlineKeyboard([
+    [
+      Markup.button.callback('🔄 Refresh', 'status:refresh'),
+      Markup.button.callback('🧹 Clear Cache', 'status:clear_cache')
+    ]
+  ]);
+  ctx.reply(getStatusMessage(), { parse_mode: 'Markdown', ...keyboard });
+});
+
+bot.action('status:refresh', async (ctx) => {
+  try {
+    await ctx.answerCbQuery('Memperbarui status bot...');
+  } catch (_) {}
+  const keyboard = Markup.inlineKeyboard([
+    [
+      Markup.button.callback('🔄 Refresh', 'status:refresh'),
+      Markup.button.callback('🧹 Clear Cache', 'status:clear_cache')
+    ]
+  ]);
+  try {
+    await ctx.editMessageText(getStatusMessage(), { parse_mode: 'Markdown', ...keyboard });
+  } catch (err) {
+    console.error('Failed to edit status message:', err.message);
+  }
+});
+
+bot.action('status:clear_cache', async (ctx) => {
+  const chatId = ctx.chat.id;
+  clearSessionHistory(chatId);
+  try {
+    await ctx.answerCbQuery('🧹 Riwayat chat sesi ini dibersihkan!');
+  } catch (_) {}
+  await ctx.reply('🧹 Riwayat chat sesi ini telah berhasil dibersihkan! Mari kita mulai percakapan baru.');
 });
 
 
@@ -2327,10 +2577,16 @@ bot.command('model', async (ctx) => {
       if (availableModels.length === 0) {
         return ctx.reply(`🧠 *Model AI Anda Saat Ini:* \`${getCurrentModel(chatId)}\`\n\n⚠️ Gagal memuat daftar model dari Groq API.`, { parse_mode: 'Markdown' });
       }
-      const modelList = availableModels.map((m, i) => `${i + 1}. \`${m}\``).join('\n');
+      
+      const keyboardButtons = availableModels.map(m => {
+        const isActive = getCurrentModel(chatId) === m;
+        return [Markup.button.callback(isActive ? `🧠 ${m} (Aktif)` : m, `model:set:${m}`)];
+      });
+      const keyboard = Markup.inlineKeyboard(keyboardButtons);
+
       return ctx.reply(
-        `🧠 *Model AI Anda Saat Ini:* \`${getCurrentModel(chatId)}\`\n\n*Model Tersedia:*\n${modelList}\n\nGunakan \`/model <nama_model>\` untuk mengganti model.\nContoh: \`/model llama-3.1-8b-instant\``,
-        { parse_mode: 'Markdown' }
+        `🧠 *Model AI Anda Saat Ini:* \`${getCurrentModel(chatId)}\`\n\n*Pilih Model Premium yang ingin Anda gunakan:*`,
+        { parse_mode: 'Markdown', ...keyboard }
       );
     }
 
@@ -2346,6 +2602,50 @@ bot.command('model', async (ctx) => {
   }
 });
 
+bot.action(/^model:set:(.+)$/, async (ctx) => {
+  const chatId = ctx.chat.id;
+  const isPremium = isPremiumUser(chatId);
+  if (!isPremium) {
+    try {
+      await ctx.answerCbQuery('⚠️ Fitur ini hanya untuk Premium Member!');
+    } catch (_) {}
+    return;
+  }
+
+  const newModel = ctx.match[1];
+  try {
+    const availableModels = await getAvailableModels();
+    if (!availableModels.includes(newModel)) {
+      try {
+        await ctx.answerCbQuery(`⚠️ Model ${newModel} tidak tersedia.`);
+      } catch (_) {}
+      return;
+    }
+
+    setUserModel(chatId, newModel);
+    try {
+      await ctx.answerCbQuery(`✅ Model diganti ke ${newModel}`);
+    } catch (_) {}
+
+    const keyboardButtons = availableModels.map(m => {
+      const isActive = m === newModel;
+      return [Markup.button.callback(isActive ? `🧠 ${m} (Aktif)` : m, `model:set:${m}`)];
+    });
+    const keyboard = Markup.inlineKeyboard(keyboardButtons);
+
+    try {
+      await ctx.editMessageText(
+        `🧠 *Model AI Anda Saat Ini:* \`${newModel}\`\n\n*Pilih Model Premium yang ingin Anda gunakan:*`,
+        { parse_mode: 'Markdown', ...keyboard }
+      );
+    } catch (err) {
+      console.error('Failed to edit model message:', err.message);
+    }
+  } catch (err) {
+    console.error('Error setting model via action:', err.message);
+  }
+});
+
 
 bot.command('thinking', async (ctx) => {
   const text = ctx.message.text.trim();
@@ -2354,13 +2654,22 @@ bot.command('thinking', async (ctx) => {
 
   const availableLevels = ['off', 'low', 'high'];
   if (!level) {
+    const current = getCurrentThinkingLevel().toLowerCase();
+    const keyboard = Markup.inlineKeyboard([
+      [
+        Markup.button.callback(current === 'off' ? '🔴 Off (Aktif)' : 'Off', 'thinking:set:off'),
+        Markup.button.callback(current === 'low' ? '🟡 Low (Aktif)' : 'Low', 'thinking:set:low'),
+        Markup.button.callback(current === 'high' ? '🟢 High (Aktif)' : 'High', 'thinking:set:high')
+      ]
+    ]);
     return ctx.reply(
-      `🧠 *Pengaturan Berpikir AI (Thinking Mode):* \`${getCurrentThinkingLevel().toUpperCase()}\`\n\n` +
-      `Gunakan \`/thinking <off|low|high>\` untuk mengganti mode berpikir.\n\n` +
-      `- \`off\`: Respon sangat cepat, tanpa proses analisa mendalam.\n` +
-      `- \`low\`: Respon cepat dengan sedikit proses berpikir.\n` +
-      `- \`high\`: Respon lebih lambat tetapi sangat analitis (menjawab logika rumit/koding dengan baik).`,
-      { parse_mode: 'Markdown' }
+      `🧠 *Pengaturan Mode Berpikir AI (Thinking Mode)*\n\n` +
+      `Mode saat ini: *${current.toUpperCase()}*\n\n` +
+      `Pilih tingkat kedalaman berpikir AI di bawah ini:\n` +
+      `• *Off*: Respon sangat cepat, tanpa analisa mendalam.\n` +
+      `• *Low*: Respon cepat dengan sedikit proses berpikir.\n` +
+      `• *High*: Respon sangat analitis (menjawab koding/logika rumit dengan baik).`,
+      { parse_mode: 'Markdown', ...keyboard }
     );
   }
 
@@ -2371,6 +2680,36 @@ bot.command('thinking', async (ctx) => {
 
   setThinkingLevel(cleanLevel);
   await ctx.reply(`✅ Mode berpikir AI berhasil diubah ke: \`${cleanLevel.toUpperCase()}\``, { parse_mode: 'Markdown' });
+});
+
+bot.action(/^thinking:set:(off|low|high)$/, async (ctx) => {
+  const newLevel = ctx.match[1];
+  setThinkingLevel(newLevel);
+  try {
+    await ctx.answerCbQuery(`✅ Mode berpikir diubah ke ${newLevel.toUpperCase()}`);
+  } catch (_) {}
+  
+  const keyboard = Markup.inlineKeyboard([
+    [
+      Markup.button.callback(newLevel === 'off' ? '🔴 Off (Aktif)' : 'Off', 'thinking:set:off'),
+      Markup.button.callback(newLevel === 'low' ? '🟡 Low (Aktif)' : 'Low', 'thinking:set:low'),
+      Markup.button.callback(newLevel === 'high' ? '🟢 High (Aktif)' : 'High', 'thinking:set:high')
+    ]
+  ]);
+  
+  try {
+    await ctx.editMessageText(
+      `🧠 *Pengaturan Mode Berpikir AI (Thinking Mode)*\n\n` +
+      `Mode saat ini: *${newLevel.toUpperCase()}*\n\n` +
+      `Pilih tingkat kedalaman berpikir AI di bawah ini:\n` +
+      `• *Off*: Respon sangat cepat, tanpa analisa mendalam.\n` +
+      `• *Low*: Respon cepat dengan sedikit proses berpikir.\n` +
+      `• *High*: Respon sangat analitis (menjawab koding/logika rumit dengan baik).`,
+      { parse_mode: 'Markdown', ...keyboard }
+    );
+  } catch (err) {
+    console.error('Failed to edit thinking message:', err.message);
+  }
 });
 
 
@@ -3254,7 +3593,11 @@ async function handleAiRequest(ctx, prompt) {
         finalPrompt = 'Tanggapi pesan ini.';
       }
     } else {
-      const startText = `🤖 *Asisten AI Agent*
+      const directDoc = ctx.message && ctx.message.document;
+      if (directDoc) {
+        finalPrompt = `Jelaskan isi dari berkas "${directDoc.file_name}" ini.`;
+      } else {
+        const startText = `🤖 *Asisten AI Agent*
 Minta AI melakukan apa saja! Cukup ketik perintah Anda setelah \`/ai\`.
 
 *Contoh yang bisa Anda minta:*
@@ -3266,26 +3609,329 @@ Minta AI melakukan apa saja! Cukup ketik perintah Anda setelah \`/ai\`.
 
 *Fitur Spesial:*
 • Balas (Reply) foto/pesan/berkas/suara apa saja dengan \`/ai\` untuk menganalisisnya!`;
-      return ctx.reply(startText, {
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([
-          [
-            Markup.button.callback('🌦️ Cek Cuaca', 'ai_template:cuaca'),
-            Markup.button.callback('🎨 Buat Gambar', 'ai_template:gambar')
-          ],
-          [
-            Markup.button.callback('🔍 Berita Terbaru', 'ai_template:berita'),
-            Markup.button.callback('💰 Harga Crypto', 'ai_template:kripto')
-          ],
-          [
-            Markup.button.callback('🧠 Lihat Memori', 'ai_template:memori')
-          ]
-        ])
-      });
+        return ctx.reply(startText, {
+          parse_mode: 'Markdown',
+          ...Markup.inlineKeyboard([
+            [
+              Markup.button.callback('🌦️ Cek Cuaca', 'ai_template:cuaca'),
+              Markup.button.callback('🎨 Buat Gambar', 'ai_template:gambar')
+            ],
+            [
+              Markup.button.callback('🔍 Berita Terbaru', 'ai_template:berita'),
+              Markup.button.callback('💰 Harga Crypto', 'ai_template:kripto')
+            ],
+            [
+              Markup.button.callback('🧠 Lihat Memori', 'ai_template:memori')
+            ]
+          ])
+        });
+      }
     }
   }
 
   const chatId = ctx.chat.id;
+
+  // 1. VPS Credentials Detection Interception
+  const vpsCreds = (() => {
+    const text = finalPrompt;
+    let host = null;
+    let username = null;
+    let password = null;
+    let port = 22;
+
+    // Extract host/IP
+    const ipMatch = text.match(/(?:ip|host|server|addr|address)\s*[:=]\s*([a-zA-Z0-9.-]+)/i);
+    if (ipMatch) {
+      host = ipMatch[1].trim();
+    } else {
+      const rawIpMatch = text.match(/\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b/);
+      if (rawIpMatch) {
+        host = rawIpMatch[0];
+      } else {
+        const domainMatch = text.match(/\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,6}\b/);
+        if (domainMatch && !['google.com', 'github.com', 'example.com'].includes(domainMatch[0].toLowerCase())) {
+          host = domainMatch[0];
+        }
+      }
+    }
+
+    // Extract username
+    const userMatch = text.match(/(?:username|user|login)\s*[:=]\s*([a-zA-Z0-9_.-]+)/i);
+    if (userMatch) {
+      username = userMatch[1].trim();
+    }
+
+    // Check ssh user@host
+    const sshUserHostMatch = text.match(/(?:ssh\s+)?([a-zA-Z0-9_.-]+)@([a-zA-Z0-9.-]+)/i);
+    if (sshUserHostMatch) {
+      if (!username) username = sshUserHostMatch[1].trim();
+      if (!host) host = sshUserHostMatch[2].trim();
+    }
+
+    if (!username && host) {
+      username = 'root'; // default user
+    }
+
+    // Extract password
+    const passMatch = text.match(/(?:password|pass|passwd|pw|sandi)\s*[:=]\s*(\S+)/i);
+    if (passMatch) {
+      password = passMatch[1].trim();
+    } else {
+      const passLineMatch = text.match(/(?:password|pass|passwd|pw|sandi)\s+(\S+)/i);
+      if (passLineMatch) {
+        password = passLineMatch[1].trim();
+      }
+    }
+
+    // Extract port
+    const portMatch = text.match(/(?:port)\s*[:=]\s*([0-9]+)/i);
+    if (portMatch) {
+      port = parseInt(portMatch[1].trim(), 10);
+    }
+
+    return (host && username && password) ? { host, username, password, port } : null;
+  })();
+
+  if (vpsCreds) {
+    const proc = startProcess(chatId, `VPS Connect: ${vpsCreds.host}`);
+    const status = createStatusUpdater(ctx, proc.id);
+    await status.update(`Menghubungkan ke VPS ${vpsCreds.host} dengan user ${vpsCreds.username}...`);
+    try {
+      // 1. Save VPS session
+      const saveResult = await toolHandlers.save_vps_session(
+        { host: vpsCreds.host, username: vpsCreds.username, password: vpsCreds.password, port: vpsCreds.port },
+        chatId,
+        proc.controller.signal
+      );
+      
+      // 2. Monitor VPS server to show status
+      await status.update(`Mengambil status performa server ${vpsCreds.host}...`);
+      const monitorResult = await toolHandlers.ssh_monitor_server(
+        { host: vpsCreds.host, username: vpsCreds.username, password: vpsCreds.password, port: vpsCreds.port },
+        chatId,
+        proc.controller.signal
+      );
+
+      await status.delete();
+      
+      // Send output to user
+      const keyboard = Markup.inlineKeyboard([
+        [
+          Markup.button.callback('🔄 Refresh', 'vps:refresh'),
+          Markup.button.callback('📊 Grafik 24h', 'vps:graph_24h'),
+          Markup.button.callback('⚙️ Setting Alert', 'vps:settings')
+        ]
+      ]);
+      
+      // Combine save message and monitor results
+      const finalMsg = `✅ *Sesi VPS Berhasil Disimpan!*\n\n${saveResult}\n\n${monitorResult}`;
+      await ctx.reply(finalMsg, { parse_mode: 'Markdown', ...keyboard });
+      
+    } catch (err) {
+      if (err.message !== 'STOPPED') {
+        await status.delete();
+        await ctx.reply(`❌ Gagal menyimpan sesi atau memantau VPS: ${err.message}`);
+      }
+    } finally {
+      activeProcesses.delete(proc.id);
+    }
+    return;
+  }
+
+  // 2. 2FA SSH Setup Interception
+  const is2faRequest = /(pasang|setup|aktifkan|pasangin)\s+(2fa|google\s+authenticator|authentication\s+google\s+2fa|totp)/i.test(finalPrompt) || /(kode\s+2fa|kode\s+a2f|totp\s+vps)/i.test(finalPrompt);
+
+  if (is2faRequest) {
+    const proc = startProcess(chatId, 'Setup 2FA VPS');
+    const status = createStatusUpdater(ctx, proc.id);
+    await status.update('Sedang menyiapkan dan mengonfigurasi Google Authenticator 2FA di VPS Anda...');
+    try {
+      const result = await toolHandlers.ssh_setup_2fa({ targetUser: null, host: null, username: null }, chatId, proc.controller.signal);
+      await status.delete();
+      await replySafe(ctx, result);
+    } catch (err) {
+      if (err.message !== 'STOPPED') {
+        await status.delete();
+        await ctx.reply(`❌ Gagal setup 2FA: ${err.message}`);
+      }
+    } finally {
+      activeProcesses.delete(proc.id);
+    }
+    return;
+  }
+
+  // Intercept conversational VPS shell execution requests (like "jalankan command ini...")
+  const extractedCmd = (() => {
+    const regex = /^(tolong|mohon|bantu|please|bantu\s+saya\s+)?(jalankan\s+)?(command|perintah|run|cmd|eksekusi)\s+(ini\s+)?(dan\s+tampilkan\s+hasilnya\s+)?(di\s+vps\s+)?(:)?\s*([\s\S]+)$/i;
+    const match = finalPrompt.trim().match(regex);
+    return match ? match[8].trim() : null;
+  })();
+
+  if (extractedCmd) {
+    const proc = startProcess(chatId, `VPS Run: ${extractedCmd}`);
+    const status = createStatusUpdater(ctx, proc.id);
+    await status.update('Sedang menjalankan perintah di VPS...');
+    try {
+      const result = await toolHandlers.ssh_run_command({ command: extractedCmd, host: null, username: null }, chatId, proc.controller.signal);
+      await status.delete();
+      await replyVpsResult(ctx, result);
+    } catch (err) {
+      if (err.message !== 'STOPPED') {
+        await status.delete();
+        await ctx.reply(`Gagal eksekusi perintah: ${err.message}`);
+      }
+    } finally {
+      activeProcesses.delete(proc.id);
+    }
+    return;
+  }
+
+  const checkPrompt = finalPrompt.toLowerCase().replace(/^(tolong|mohon|bantu|please|run)\s+/gi, '').trim();
+
+  // Redirect WHOIS / GeoIP Lookups
+  const ipMatch = finalPrompt.match(/\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b/);
+  const domainMatch = finalPrompt.match(/\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,6}\b/);
+  const whoisTarget = ipMatch ? ipMatch[0] : (domainMatch ? domainMatch[0] : null);
+  const isWhoisQuery = /(whois|geoip|isp|region|wilayah|negara|kota|lokasi|pemilik|domain)/i.test(checkPrompt);
+
+  if (whoisTarget && isWhoisQuery) {
+    const proc = startProcess(chatId, 'WHOIS/GeoIP Lookup');
+    const status = createStatusUpdater(ctx, proc.id);
+    await status.update(`Melakukan lookup WHOIS/GeoIP untuk ${whoisTarget}...`);
+    try {
+      const result = await toolHandlers.lookup_whois_geoip({ target: whoisTarget }, chatId, proc.controller.signal);
+      await status.delete();
+      const formattedText = await formatPersonalityText(chatId, 'whois', whoisTarget, result);
+      await replySafe(ctx, formattedText);
+    } catch (err) {
+      if (err.message !== 'STOPPED') {
+        await status.delete();
+        await ctx.reply(`❌ Gagal melakukan lookup WHOIS/GeoIP: ${err.message}`);
+      }
+    } finally {
+      activeProcesses.delete(proc.id);
+    }
+    return;
+  }
+
+  // Redirect VPS monitoring
+  if (checkPrompt === 'vps' || checkPrompt === 'vps status' || checkPrompt === 'status vps' || checkPrompt === 'cek vps' || checkPrompt === 'pantau vps') {
+    const proc = startProcess(chatId, 'Memantau VPS');
+    const status = createStatusUpdater(ctx, proc.id);
+    await status.update('Sedang mengambil data VPS...');
+    try {
+      const result = await toolHandlers.ssh_monitor_server({ host: null, username: null }, chatId, proc.controller.signal);
+      await status.delete();
+      const keyboard = Markup.inlineKeyboard([
+        [
+          Markup.button.callback('🔄 Refresh', 'vps:refresh'),
+          Markup.button.callback('📊 Grafik 24h', 'vps:graph_24h'),
+          Markup.button.callback('⚙️ Setting Alert', 'vps:settings')
+        ]
+      ]);
+      await ctx.reply(result, { parse_mode: 'Markdown', ...keyboard });
+    } catch (err) {
+      if (err.message !== 'STOPPED') {
+        await status.delete();
+        await ctx.reply(`Gagal memantau VPS: ${err.message}`);
+      }
+    } finally {
+      activeProcesses.delete(proc.id);
+    }
+    return;
+  }
+
+  // Redirect Speedtest
+  if (checkPrompt === 'speedtest' || checkPrompt === 'speed' || checkPrompt === 'vps speedtest' || checkPrompt === 'vps speed') {
+    const proc = startProcess(chatId, 'VPS Speedtest');
+    const status = createStatusUpdater(ctx, proc.id);
+    await status.update('Sedang menjalankan Speedtest di VPS (ini memakan waktu sekitar 30-60 detik)...');
+    try {
+      const command = 'if ! command -v curl >/dev/null 2>&1; then echo "curl tidak ditemukan. Menginstall curl..."; if command -v apt-get >/dev/null 2>&1; then sudo apt-get update && DEBIAN_FRONTEND=noninteractive sudo apt-get install -y curl; elif command -v yum >/dev/null 2>&1; then sudo yum install -y curl; fi; fi; if ! command -v python3 >/dev/null 2>&1 && ! command -v python >/dev/null 2>&1; then echo "Python tidak ditemukan. Menginstall Python3..."; if command -v apt-get >/dev/null 2>&1; then sudo apt-get update && DEBIAN_FRONTEND=noninteractive sudo apt-get install -y python3; elif command -v yum >/dev/null 2>&1; then sudo yum install -y python3; fi; fi; if command -v python3 >/dev/null 2>&1; then curl -s https://raw.githubusercontent.com/sivel/speedtest-cli/master/speedtest.py | python3 -; elif command -v python >/dev/null 2>&1; then curl -s https://raw.githubusercontent.com/sivel/speedtest-cli/master/speedtest.py | python -; else echo "Error: Gagal menginstall Python secara otomatis."; fi';
+      const result = await toolHandlers.ssh_run_command({ command, host: null, username: null }, chatId, proc.controller.signal);
+      await status.delete();
+      await replyVpsResult(ctx, `*Hasil Speedtest VPS:*\n\`\`\`\n${result.replace(/`/g, '')}\n\`\`\``);
+    } catch (err) {
+      if (err.message !== 'STOPPED') {
+        await status.delete();
+        await ctx.reply(`Gagal mengeksekusi Speedtest: ${err.message}`);
+      }
+    } finally {
+      activeProcesses.delete(proc.id);
+    }
+    return;
+  }
+
+  // Redirect VPS update
+  if (checkPrompt === 'update vps' || checkPrompt === 'vps update' || checkPrompt === 'apt update vps' || checkPrompt === 'sudo apt update vps') {
+    const proc = startProcess(chatId, 'VPS: update');
+    const status = createStatusUpdater(ctx, proc.id);
+    await status.update('Sedang menjalankan update paket di VPS (apt update)...');
+    try {
+      const command = 'DEBIAN_FRONTEND=noninteractive sudo apt-get update';
+      const result = await toolHandlers.ssh_run_command({ command, host: null, username: null }, chatId, proc.controller.signal);
+      await status.delete();
+      await replyVpsResult(ctx, `*Hasil Update VPS:*\n\`\`\`\n${result.replace(/`/g, '')}\n\`\`\``);
+    } catch (err) {
+      if (err.message !== 'STOPPED') {
+        await status.delete();
+        await ctx.reply(`Gagal mengupdate paket: ${err.message}`);
+      }
+    } finally {
+      activeProcesses.delete(proc.id);
+    }
+    return;
+  }
+
+  // Redirect VPS upgrade
+  if (checkPrompt === 'upgrade vps' || checkPrompt === 'vps upgrade' || checkPrompt === 'apt upgrade vps' || checkPrompt === 'sudo apt upgrade vps') {
+    const proc = startProcess(chatId, 'VPS: upgrade');
+    const status = createStatusUpdater(ctx, proc.id);
+    await status.update('Sedang menjalankan upgrade paket di VPS (apt upgrade)...');
+    try {
+      const command = 'DEBIAN_FRONTEND=noninteractive sudo apt-get update && DEBIAN_FRONTEND=noninteractive sudo apt-get upgrade -y';
+      const result = await toolHandlers.ssh_run_command({ command, host: null, username: null }, chatId, proc.controller.signal);
+      await status.delete();
+      await replyVpsResult(ctx, `*Hasil Upgrade VPS:*\n\`\`\`\n${result.replace(/`/g, '')}\n\`\`\``);
+    } catch (err) {
+      if (err.message !== 'STOPPED') {
+        await status.delete();
+        await ctx.reply(`Gagal mengupgrade paket: ${err.message}`);
+      }
+    } finally {
+      activeProcesses.delete(proc.id);
+    }
+    return;
+  }
+
+  // Dynamic VPS Diagnostics Injection for Conversational AI Queries
+  const isSecurityQuery = /(keamanan|security|secure|fail2ban|firewall|port|log)/i.test(checkPrompt) && /(vps|server)/i.test(checkPrompt);
+  const isPerformanceQuery = /(performa|ram|cpu|disk|penyimpanan|memory|memori|load)/i.test(checkPrompt) && /(vps|server)/i.test(checkPrompt);
+
+  if (isSecurityQuery) {
+    const status = createStatusUpdater(ctx);
+    await status.update('Mengambil data keamanan VPS...');
+    try {
+      const cmd = `if ! command -v ufw >/dev/null 2>&1; then echo "UFW tidak terpasang. Menginstall UFW..."; if command -v apt-get >/dev/null 2>&1; then sudo apt-get update && DEBIAN_FRONTEND=noninteractive sudo apt-get install -y ufw; elif command -v yum >/dev/null 2>&1; then sudo yum install -y ufw; fi; sudo ufw allow 22/tcp; sudo ufw allow ssh; sudo ufw --force enable; fi; if ! command -v fail2ban-client >/dev/null 2>&1; then echo "Fail2ban tidak terpasang. Menginstall Fail2ban..."; if command -v apt-get >/dev/null 2>&1; then sudo apt-get update && DEBIAN_FRONTEND=noninteractive sudo apt-get install -y fail2ban; elif command -v yum >/dev/null 2>&1; then sudo yum install -y epel-release && sudo yum install -y fail2ban; fi; sudo systemctl enable fail2ban; sudo systemctl start fail2ban; fi; echo "=== FIREWALL ===" && (sudo ufw status 2>/dev/null || sudo iptables -L -n 2>/dev/null | head -n 15) && echo "=== FAIL2BAN ===" && (systemctl is-active fail2ban 2>/dev/null || echo "inactive") && echo "=== LAST LOGINS ===" && last -n 5 2>/dev/null && echo "=== FAILED ATTEMPTS ===" && (sudo grep "Failed password" /var/log/auth.log /var/log/secure 2>/dev/null | tail -n 5 || echo "No failed attempts recorded.")`;
+      const result = await toolHandlers.ssh_run_command({ command: cmd, host: null, username: null }, chatId);
+      await status.delete();
+      
+      finalPrompt = `[VPS DIAGNOSTIC SECURITY DATA]\n${result}\n[END VPS DIAGNOSTIC SECURITY DATA]\n\nInstruksi penting untuk AI: Di atas adalah data keamanan real-time dari VPS pengguna. Analisis data tersebut secara detail dan berikan penjelasan, penilaian, serta rekomendasi keamanan yang ramah (sesuai kepribadian Anda). JANGAN pernah berhalusinasi atau berpura-pura menginstal fail2ban/perangkat lunak lain jika data menunjukkan fail2ban belum aktif. Cukup jelaskan kondisi aslinya dan berikan instruksi instalasi jika diperlukan.\n\nPertanyaan pengguna: ${finalPrompt}`;
+    } catch (err) {
+      await status.delete();
+    }
+  } else if (isPerformanceQuery) {
+    const status = createStatusUpdater(ctx);
+    await status.update('Mengambil data performa VPS...');
+    try {
+      const result = await toolHandlers.ssh_monitor_server({ host: null, username: null }, chatId);
+      await status.delete();
+      
+      finalPrompt = `[VPS DIAGNOSTIC PERFORMANCE DATA]\n${result}\n[END VPS DIAGNOSTIC PERFORMANCE DATA]\n\nInstruksi penting untuk AI: Di atas adalah data performa real-time dari VPS pengguna (RAM, Disk, CPU, Swap). Analisis data tersebut secara detail dan berikan penjelasan serta penilaian performa server yang ramah (sesuai kepribadian Anda).\n\nPertanyaan pengguna: ${finalPrompt}`;
+    } catch (err) {
+      await status.delete();
+    }
+  }
 
   // HD Enhance Image handler
   const cleanPrompt = finalPrompt.toLowerCase();
@@ -3387,23 +4033,24 @@ Minta AI melakukan apa saja! Cukup ketik perintah Anda setelah \`/ai\`.
     finalPrompt += `\n\n[SISTEM: Pengguna membalas pesan teks berikut:\n"""\n${replyMsg.text}\n"""]`;
   }
 
-  // Handle voice notes or audio messages (direct or in reply)
-  const targetVoiceOrAudio = (ctx.message && (ctx.message.voice || ctx.message.audio)) || (replyMsg && (replyMsg.voice || replyMsg.audio));
-  if (targetVoiceOrAudio) {
-    const isDirect = ctx.message && (ctx.message.voice || ctx.message.audio);
+  // Handle voice notes, audio messages, or videos (direct or in reply)
+  const targetMedia = (ctx.message && (ctx.message.voice || ctx.message.audio || ctx.message.video)) || (replyMsg && (replyMsg.voice || replyMsg.audio || replyMsg.video));
+  if (targetMedia) {
+    const isDirect = ctx.message && (ctx.message.voice || ctx.message.audio || ctx.message.video);
     const isVoice = !!(isDirect ? ctx.message.voice : replyMsg.voice);
-    const actionText = isVoice ? 'rekaman suara' : 'berkas audio';
-    const statusText = isDirect ? `Mengunduh ${actionText}...` : `Mengunduh dan mentranskripsi ${actionText} balasan...`;
+    const isVideo = !!(isDirect ? ctx.message.video : replyMsg.video);
+    const actionText = isVoice ? 'rekaman suara' : isVideo ? 'video' : 'berkas audio';
+    const statusText = isDirect ? `Mengunduh ${actionText}...` : `Mengunduh ${actionText} balasan...`;
     
     await status.update(statusText);
     try {
-      const fileLink = await ctx.telegram.getFileLink(targetVoiceOrAudio.file_id);
+      const fileLink = await ctx.telegram.getFileLink(targetMedia.file_id);
       
-      let fileName = isVoice ? 'input_voice.ogg' : 'input_audio.mp3';
-      const file_name_prop = isDirect ? (ctx.message.audio?.file_name || ctx.message.document?.file_name) : (replyMsg.audio?.file_name || replyMsg.document?.file_name);
+      let fileName = isVoice ? 'input_voice.ogg' : isVideo ? 'input_video.mp4' : 'input_audio.mp3';
+      const file_name_prop = isDirect ? (ctx.message.audio?.file_name || ctx.message.document?.file_name || ctx.message.video?.file_name) : (replyMsg.audio?.file_name || replyMsg.document?.file_name || replyMsg.video?.file_name);
       if (!isVoice && file_name_prop) {
-        const ext = path.extname(file_name_prop) || '.mp3';
-        fileName = `input_audio${ext}`;
+        const ext = path.extname(file_name_prop) || (isVideo ? '.mp4' : '.mp3');
+        fileName = isVideo ? `input_video${ext}` : `input_audio${ext}`;
       }
       
       const targetPath = path.join(config.workspaceDir, fileName);
@@ -3413,11 +4060,19 @@ Minta AI melakukan apa saja! Cukup ketik perintah Anda setelah \`/ai\`.
       if (isDirect && isVoice) {
         // Direct voice notes are already transcribed by bot.on('voice') and passed as the prompt
         voiceText = prompt;
-      } else {
+      } else if (!isVideo) {
         voiceText = await transcribeAudio(targetPath);
+      } else {
+        // We skip automatic transcription for video files because they are often too large
+        // and cause Groq API connection timeouts or 413 Payload Too Large errors.
+        console.log(`Skipping transcription for video file ${fileName}`);
       }
       
-      finalPrompt += `\n\n[SISTEM: Pengguna melampirkan/membalas ${actionText} dengan transkripsi: "${voiceText}"\nBerkas ${actionText} tersebut telah diunduh dan disimpan di sandbox sebagai "${fileName}". Jika pengguna meminta untuk menganalisis, memproses, mengubah, mengonversi, mengoptimasi, memperkecil, meningkatkan, atau menerapkan efek filter ke audio ini, gunakan berkas "${fileName}" yang sudah ada di sandbox ini langsung tanpa perlu mengunduh ulang.]`;
+      finalPrompt += `\n\n[SISTEM: Pengguna melampirkan/membalas ${actionText}`;
+      if (voiceText) {
+        finalPrompt += ` dengan transkripsi (lirik/ucapan): "${voiceText}"`;
+      }
+      finalPrompt += `\nBerkas ${actionText} tersebut telah diunduh dan disimpan di sandbox sebagai "${fileName}". Jika pengguna meminta untuk mencari judul lagu dari ${actionText} ini, gunakan alat "find_song" dengan parameter filePath="${fileName}" (jangan gunakan parameter url, gunakan filePath karena berkas ada di sandbox). Untuk memproses suara atau hal lain gunakan berkas "${fileName}" yang sudah ada ini.]`;
     } catch (err) {
       console.error(`Failed to download or process ${actionText}:`, err.message);
     }
@@ -3429,10 +4084,11 @@ Minta AI melakukan apa saja! Cukup ketik perintah Anda setelah \`/ai\`.
     const fileName = doc.file_name;
     const fileSize = doc.file_size;
     const isZip = fileName.toLowerCase().endsWith('.zip');
-    const maxAllowedSize = isZip ? 20 * 1024 * 1024 : 1024 * 1024;
+    const isPdfDocx = fileName.toLowerCase().endsWith('.pdf') || fileName.toLowerCase().endsWith('.docx');
+    const maxAllowedSize = isZip ? 20 * 1024 * 1024 : (isPdfDocx ? 10 * 1024 * 1024 : 1024 * 1024);
 
     if (fileSize > maxAllowedSize) {
-      await ctx.reply(`⚠️ Ukuran berkas terlalu besar. Batas maksimal adalah ${isZip ? '20MB' : '1MB'}.`);
+      await ctx.reply(`⚠️ Ukuran berkas terlalu besar. Batas maksimal adalah ${isZip ? '20MB' : (isPdfDocx ? '10MB' : '1MB')}.`);
     } else {
       await status.update(`Mengunduh berkas ${fileName}...`);
       try {
@@ -3442,6 +4098,42 @@ Minta AI melakukan apa saja! Cukup ketik perintah Anda setelah \`/ai\`.
           const zipPath = path.join(config.workspaceDir, 'project.zip');
           await downloadTelegramFile(fileLink.href, zipPath);
           finalPrompt += `\n\n[SISTEM: Pengguna melampirkan/membalas berkas ZIP bernama "${fileName}". File ini telah diunduh dan disimpan di sandbox sebagai "project.zip". Gunakan alat "unzip_file" jika Anda perlu mengekstrak isinya untuk dipelajari atau dimodifikasi.]`;
+        } else if (isPdfDocx) {
+          const tempPath = path.join(config.workspaceDir, `uploaded_${Date.now()}_${fileName}`);
+          await downloadTelegramFile(fileLink.href, tempPath);
+          const ext = path.extname(fileName).toLowerCase();
+
+          await status.update(`Mengekstrak isi dokumen ${fileName}...`);
+          let parsedContent = '';
+          if (ext === '.pdf') {
+            try {
+              const pdf = (await import('pdf-parse')).default;
+              const dataBuffer = fs.readFileSync(tempPath);
+              const data = await pdf(dataBuffer);
+              parsedContent = `Metadata:\nPages: ${data.numpages}\nTitle: ${data.info?.Title || 'N/A'}\n\nContent:\n${data.text || '(empty)'}`;
+            } catch (err) {
+              parsedContent = `Failed to parse PDF file: ${err.message}`;
+            }
+          } else if (ext === '.docx') {
+            try {
+              const mammoth = await import('mammoth');
+              const result = await mammoth.extractRawText({ path: tempPath });
+              parsedContent = `Content:\n${result.value || '(empty)'}`;
+            } catch (err) {
+              parsedContent = `Failed to parse DOCX file: ${err.message}`;
+            }
+          }
+
+          // Truncate content to avoid overloading if it is extremely long
+          if (parsedContent.length > 50000) {
+            parsedContent = parsedContent.substring(0, 50000) + '\n\n...[Isi dokumen dipotong karena terlalu panjang]...';
+          }
+
+          finalPrompt += `\n\n[SISTEM: Pengguna melampirkan berkas dokumen bernama "${fileName}". File ini telah dianalisis dan diekstrak teksnya sebagai berikut:\n"""\n${parsedContent}\n"""]`;
+
+          if (fs.existsSync(tempPath)) {
+            fs.unlinkSync(tempPath);
+          }
         } else {
           const tempPath = path.join(config.workspaceDir, `uploaded_${Date.now()}_${fileName}`);
           await downloadTelegramFile(fileLink.href, tempPath);
@@ -3821,6 +4513,192 @@ bot.command(['hd', 'enhance', 'upscale'], async (ctx) => {
   await handleAiRequest(ctx, prompt || 'hd');
 });
 
+bot.command('vps', async (ctx) => {
+  const text = ctx.message.text.trim();
+  const args = text.replace(/^\/vps\s*/i, '').trim().toLowerCase();
+
+  const chatId = ctx.chat.id;
+  const proc = startProcess(chatId, args ? `VPS: ${args}` : 'Memantau VPS');
+  const status = createStatusUpdater(ctx, proc.id);
+  
+  if (args === 'speedtest' || args === 'speed') {
+    await status.update('Sedang menjalankan Speedtest di VPS (ini memakan waktu sekitar 30-60 detik)...');
+    try {
+      const command = 'if ! command -v curl >/dev/null 2>&1; then echo "curl tidak ditemukan. Menginstall curl..."; if command -v apt-get >/dev/null 2>&1; then sudo apt-get update && DEBIAN_FRONTEND=noninteractive sudo apt-get install -y curl; elif command -v yum >/dev/null 2>&1; then sudo yum install -y curl; fi; fi; if ! command -v python3 >/dev/null 2>&1 && ! command -v python >/dev/null 2>&1; then echo "Python tidak ditemukan. Menginstall Python3..."; if command -v apt-get >/dev/null 2>&1; then sudo apt-get update && DEBIAN_FRONTEND=noninteractive sudo apt-get install -y python3; elif command -v yum >/dev/null 2>&1; then sudo yum install -y python3; fi; fi; if command -v python3 >/dev/null 2>&1; then curl -s https://raw.githubusercontent.com/sivel/speedtest-cli/master/speedtest.py | python3 -; elif command -v python >/dev/null 2>&1; then curl -s https://raw.githubusercontent.com/sivel/speedtest-cli/master/speedtest.py | python -; else echo "Error: Gagal menginstall Python secara otomatis."; fi';
+      const result = await toolHandlers.ssh_run_command({ command, host: null, username: null }, chatId, proc.controller.signal);
+      await status.delete();
+      await replyVpsResult(ctx, `*Hasil Speedtest VPS:*\n\`\`\`\n${result.replace(/`/g, '')}\n\`\`\``);
+    } catch (err) {
+      if (err.message !== 'STOPPED') {
+        await status.delete();
+        await ctx.reply(`Gagal mengeksekusi Speedtest: ${err.message}`);
+      }
+    } finally {
+      activeProcesses.delete(proc.id);
+    }
+    return;
+  }
+
+  if (args === 'update') {
+    await status.update('Sedang menjalankan update paket di VPS (apt update)...');
+    try {
+      const command = 'DEBIAN_FRONTEND=noninteractive sudo apt-get update';
+      const result = await toolHandlers.ssh_run_command({ command, host: null, username: null }, chatId, proc.controller.signal);
+      await status.delete();
+      await replyVpsResult(ctx, `*Hasil Update VPS:*\n\`\`\`\n${result.replace(/`/g, '')}\n\`\`\``);
+    } catch (err) {
+      if (err.message !== 'STOPPED') {
+        await status.delete();
+        await ctx.reply(`Gagal mengupdate paket: ${err.message}`);
+      }
+    } finally {
+      activeProcesses.delete(proc.id);
+    }
+    return;
+  }
+
+  if (args === 'upgrade') {
+    await status.update('Sedang menjalankan upgrade paket di VPS (apt upgrade)...');
+    try {
+      const command = 'DEBIAN_FRONTEND=noninteractive sudo apt-get update && DEBIAN_FRONTEND=noninteractive sudo apt-get upgrade -y';
+      const result = await toolHandlers.ssh_run_command({ command, host: null, username: null }, chatId, proc.controller.signal);
+      await status.delete();
+      await replyVpsResult(ctx, `*Hasil Upgrade VPS:*\n\`\`\`\n${result.replace(/`/g, '')}\n\`\`\``);
+    } catch (err) {
+      if (err.message !== 'STOPPED') {
+        await status.delete();
+        await ctx.reply(`Gagal mengupgrade paket: ${err.message}`);
+      }
+    } finally {
+      activeProcesses.delete(proc.id);
+    }
+    return;
+  }
+
+  const isAptCommand = /^(sudo\s+)?apt(-get)?\b/i.test(args);
+  if (isAptCommand) {
+    let rawCommand = text.replace(/^\/vps\s*/i, '').trim();
+    let command = rawCommand;
+    if (!/^\s*sudo\b/i.test(command)) {
+      command = 'sudo ' + command;
+    }
+    command = 'DEBIAN_FRONTEND=noninteractive ' + command;
+
+    const cmdLower = command.toLowerCase();
+    if ((cmdLower.includes('install') || cmdLower.includes('upgrade') || cmdLower.includes('dist-upgrade') || cmdLower.includes('autoremove') || cmdLower.includes('purge')) && !cmdLower.includes('-y')) {
+      command += ' -y';
+    }
+
+    await status.update(`Sedang menjalankan perintah: \`${rawCommand}\`...`);
+    try {
+      const result = await toolHandlers.ssh_run_command({ command, host: null, username: null }, chatId, proc.controller.signal);
+      await status.delete();
+      await replyVpsResult(ctx, `*Hasil Perintah VPS:*\n\`\`\`\n${result.replace(/`/g, '')}\n\`\`\``);
+    } catch (err) {
+      if (err.message !== 'STOPPED') {
+        await status.delete();
+        await ctx.reply(`Gagal menjalankan perintah: ${err.message}`);
+      }
+    } finally {
+      activeProcesses.delete(proc.id);
+    }
+    return;
+  }
+
+  await status.update('Sedang mengambil data VPS...');
+  try {
+    const result = await toolHandlers.ssh_monitor_server({ host: null, username: null }, chatId, proc.controller.signal);
+    await status.delete();
+
+    const keyboard = Markup.inlineKeyboard([
+      [
+        Markup.button.callback('🔄 Refresh', 'vps:refresh'),
+        Markup.button.callback('📊 Grafik 24h', 'vps:graph_24h'),
+        Markup.button.callback('⚙️ Setting Alert', 'vps:settings')
+      ]
+    ]);
+
+    await ctx.reply(result, { parse_mode: 'Markdown', ...keyboard });
+  } catch (err) {
+    if (err.message !== 'STOPPED') {
+      await status.delete();
+      await ctx.reply(`Gagal memantau VPS: ${err.message}`);
+    }
+  } finally {
+    activeProcesses.delete(proc.id);
+  }
+});
+
+bot.command('vpsrun', async (ctx) => {
+  const text = ctx.message.text.trim();
+  const command = text.replace(/^\/vpsrun\s*/i, '').trim();
+  if (!command) {
+    return ctx.reply('Silakan masukkan perintah yang ingin dijalankan.\nContoh: `/vpsrun ls -la`', { parse_mode: 'Markdown' });
+  }
+
+  const chatId = ctx.chat.id;
+  const proc = startProcess(chatId, `Eksekusi: ${command}`);
+  const status = createStatusUpdater(ctx, proc.id);
+  await status.update('Sedang menjalankan perintah di VPS...');
+  
+  try {
+    const result = await toolHandlers.ssh_run_command({ command, host: null, username: null }, chatId, proc.controller.signal);
+    await status.delete();
+    await replyVpsResult(ctx, result);
+  } catch (err) {
+    if (err.message !== 'STOPPED') {
+      await status.delete();
+      await ctx.reply(`Gagal eksekusi perintah: ${err.message}`);
+    }
+  } finally {
+    activeProcesses.delete(proc.id);
+  }
+});
+
+bot.action('vps:refresh', async (ctx) => {
+  const chatId = ctx.chat.id;
+  try {
+    await ctx.answerCbQuery('Memperbarui status VPS...');
+  } catch (_) {}
+
+  const proc = startProcess(chatId, 'Memantau VPS');
+  try {
+    const result = await toolHandlers.ssh_monitor_server({ host: null, username: null }, chatId, proc.controller.signal);
+    
+    const keyboard = Markup.inlineKeyboard([
+      [
+        Markup.button.callback('🔄 Refresh', 'vps:refresh'),
+        Markup.button.callback('📊 Grafik 24h', 'vps:graph_24h'),
+        Markup.button.callback('⚙️ Setting Alert', 'vps:settings')
+      ]
+    ]);
+    
+    await ctx.editMessageText(result, { parse_mode: 'Markdown', ...keyboard });
+  } catch (err) {
+    if (err.message !== 'STOPPED') {
+      try {
+        await ctx.reply(`Gagal memperbarui status VPS: ${err.message}`);
+      } catch (_) {}
+    }
+  } finally {
+    activeProcesses.delete(proc.id);
+  }
+});
+
+bot.action('vps:graph_24h', async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+  } catch (_) {}
+  await ctx.reply('📊 *Grafik Penggunaan VPS 24 Jam Terakhir:*\n\n*(Fitur ini akan segera hadir! Kami sedang menyiapkan database log untuk menyimpan data statistik).* \n\nSementara itu, gunakan `/vps` untuk memantau status secara langsung.', { parse_mode: 'Markdown' });
+});
+
+bot.action('vps:settings', async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+  } catch (_) {}
+  await ctx.reply('⚙️ *Pengaturan Alert & Auto Monitor VPS:*\n\nAnda dapat mengaktifkan alarm CPU dan Auto Block DDoS dengan mengetik pesan:\n\n`Pasang auto block ddos dan alert cpu di vps`\n\nAtau atur threshold kustom:\n`Setup auto monitor di vps, kalau cpu di atas 85% kasih alert, dan kalau ada IP lebih dari 50 koneksi langsung block`', { parse_mode: 'Markdown' });
+});
+
 // Non-command text handler (auto AI response in direct messages)
 bot.on('text', async (ctx) => {
   const text = ctx.message.text.trim();
@@ -4009,6 +4887,8 @@ async function init() {
         { command: 'ytmp4', description: 'Unduh video YouTube menjadi MP4' },
         { command: 'ytmp3', description: 'Unduh audio YouTube menjadi MP3/M4A' },
         { command: 'download', description: 'Unduh video dari YouTube, TikTok, dll' },
+        { command: 'vps', description: 'Cek status VPS (tambah "speedtest" untuk cek speed)' },
+        { command: 'vpsrun', description: 'Eksekusi shell command di VPS' },
         { command: 'model', description: 'Lihat atau ganti model AI' },
         { command: 'thinking', description: 'Atur mode berpikir AI (off untuk respon cepat)' },
         { command: 'sifat', description: 'Ubah sifat/kepribadian AI Agent (Wibu, Tsundere, dll.)' },
@@ -4044,9 +4924,141 @@ async function init() {
     console.log('🚀 Telegram Bot berhasil dijalankan!');
     console.log('🤖 AI Agent siap digunakan!');
     console.log(`Menunggu pesan...`);
+    runDailyBriefingScheduler();
   }).catch((err) => {
     console.error('❌ Gagal menjalankan Telegram Bot:', err.message);
   });
+}
+
+const lastSentBriefings = new Map();
+
+async function sendDailyBriefing(chatId, sub) {
+  try {
+    let weatherData = 'Gagal mengambil data cuaca.';
+    try {
+      if (toolHandlers.get_weather) {
+        weatherData = await toolHandlers.get_weather({ city: sub.city }, chatId);
+      }
+    } catch (e) {
+      console.error('[Briefing] Weather fetch error:', e.message);
+    }
+
+    let cryptoData = 'Gagal mengambil data kripto.';
+    try {
+      if (toolHandlers.get_crypto_price) {
+        cryptoData = await toolHandlers.get_crypto_price({ symbol: sub.crypto }, chatId);
+      }
+    } catch (e) {
+      console.error('[Briefing] Crypto fetch error:', e.message);
+    }
+
+    let stockData = 'Gagal mengambil data saham.';
+    try {
+      if (toolHandlers.get_stock_price) {
+        stockData = await toolHandlers.get_stock_price({ symbol: sub.stock }, chatId);
+      }
+    } catch (e) {
+      console.error('[Briefing] Stock fetch error:', e.message);
+    }
+
+    const prompt = `[SISTEM: Pembuatan Daily Briefing Otomatis]
+Berikut adalah data mentah terkini:
+1. Cuaca BMKG (${sub.city}):
+${weatherData}
+
+2. Harga Cryptocurrency (${sub.crypto.toUpperCase()}):
+${cryptoData}
+
+3. Harga Saham (${sub.stock.toUpperCase()}):
+${stockData}
+
+Instruksi untuk AI:
+Tolong susun sebuah laporan Daily Briefing pagi yang sangat menarik, rapi, ramah, dan profesional. Sapa pengguna dengan hangat sebagai pelanggan setia Daily Briefing. Rangkum info cuaca, harga saham, dan kripto di atas dengan gaya bahasa yang menyenangkan dan mudah dipahami.
+Gunakan format tebal (*) dan list peluru (-) yang rapi agar nyaman dibaca.`;
+
+    console.log(`[Daily Briefing] Requesting AI Agent generation for ${chatId}...`);
+    const agentResult = await runAgent(chatId, prompt, [], () => {}, new AbortController().signal, null, null);
+    const briefingText = agentResult && agentResult.text ? agentResult.text : 'Gagal menghasilkan teks briefing harian.';
+
+    if (sub.format === 'text' || sub.format === 'both') {
+      await bot.telegram.sendMessage(chatId, briefingText, { parse_mode: 'Markdown' });
+    }
+
+    if (sub.format === 'podcast' || sub.format === 'both') {
+      console.log(`[Daily Briefing] Requesting Podcast audio generation for ${chatId}...`);
+      const ttsResult = await toolHandlers.generate_tts({ text: briefingText, podcastMode: true }, chatId, new AbortController().signal);
+
+      const match = ttsResult.match(/Saved at file path: (.+)/);
+      if (match) {
+        const absPath = path.join(config.workspaceDir, match[1].trim());
+        if (fs.existsSync(absPath)) {
+          await bot.telegram.sendAudio(chatId, { source: absPath }, {
+            caption: `🎙️ *Podcast Daily Briefing Anda* ☀️\n\nUntuk kota ${sub.city}, Saham ${sub.stock.toUpperCase()}, Kripto ${sub.crypto.toUpperCase()}.`,
+            parse_mode: 'Markdown'
+          });
+          try {
+            fs.unlinkSync(absPath);
+          } catch (unlinkErr) {
+            console.warn('[Briefing] Failed to delete temp podcast audio:', unlinkErr.message);
+          }
+        }
+      } else {
+        console.error('[Briefing] Failed to parse podcast path from TTS result:', ttsResult);
+      }
+    }
+  } catch (err) {
+    console.error(`[Daily Briefing] Critical error sending to ${chatId}:`, err.message);
+    try {
+      await bot.telegram.sendMessage(chatId, `⚠️ *Gagal Mengirim Daily Briefing*\n\nTerjadi kesalahan internal saat menyusun briefing harian Anda pagi ini: ${err.message}`, { parse_mode: 'Markdown' });
+    } catch (e) {}
+  }
+}
+
+function runDailyBriefingScheduler() {
+  console.log('[Daily Briefing Scheduler] Initialized.');
+  setInterval(async () => {
+    const now = new Date();
+    const jakartaTimeStr = now.toLocaleTimeString('id-ID', {
+      timeZone: 'Asia/Jakarta',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+
+    if (jakartaTimeStr !== '07:00') {
+      return;
+    }
+
+    const todayStr = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
+    console.log(`[Daily Briefing Scheduler] Triggered at 07:00 WIB (${todayStr})`);
+
+    try {
+      const files = fs.readdirSync(config.memoryDir);
+      for (const file of files) {
+        if (file.endsWith('_usage.json')) {
+          const chatId = file.replace('_usage.json', '');
+
+          if (lastSentBriefings.get(chatId) === todayStr) {
+            continue;
+          }
+
+          try {
+            const userData = JSON.parse(fs.readFileSync(path.join(config.memoryDir, file), 'utf8'));
+            const sub = userData.subscription;
+            if (sub && sub.active) {
+              lastSentBriefings.set(chatId, todayStr);
+              console.log(`[Daily Briefing] Sending briefing to user: ${chatId}`);
+              await sendDailyBriefing(chatId, sub);
+            }
+          } catch (readErr) {
+            console.error(`[Daily Briefing] Failed to process user file ${file}:`, readErr.message);
+          }
+        }
+      }
+    } catch (dirErr) {
+      console.error('[Daily Briefing] Failed to read memory directory:', dirErr.message);
+    }
+  }, 60 * 1000);
 }
 
 init();

@@ -780,6 +780,11 @@ export async function getYtMetadata(url) {
 export function isPathSafe(targetPath) {
   const resolvedTarget = path.resolve(targetPath);
   const resolvedSandbox = path.resolve(config.workspaceDir);
+
+  if (process.platform === 'win32') {
+    return resolvedTarget.toLowerCase().startsWith(resolvedSandbox.toLowerCase());
+  }
+
   return resolvedTarget.startsWith(resolvedSandbox);
 }
 
@@ -1453,6 +1458,9 @@ function createWavHeader(dataLength, options) {
 }
 
 export async function generateTts(text, outputDir, signal = null) {
+  if (!text || typeof text !== 'string') {
+    throw new Error('Parameter "text" must be a non-empty string.');
+  }
   if (signal && signal.aborted) {
     throw new Error('STOPPED');
   }

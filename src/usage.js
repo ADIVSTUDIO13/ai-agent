@@ -16,7 +16,7 @@ function getJakartaDate() {
 function readUsageFile(chatId) {
   const filePath = getUsageFilePath(chatId);
   const today = getJakartaDate();
-  const defaultData = { date: today, used: 0, extraQuota: 0, xp: 0, level: 1, points: 0, tickets: 0, tokens: {}, isPremium: false, premiumUntil: null, selectedModel: null };
+  const defaultData = { date: today, used: 0, extraQuota: 0, xp: 0, level: 1, points: 0, tickets: 0, tokens: {}, isPremium: false, premiumUntil: null, selectedModel: null, referredBy: null, referralsCount: 0, subscription: null };
 
   if (fs.existsSync(filePath)) {
     try {
@@ -33,7 +33,10 @@ function readUsageFile(chatId) {
           tokens: data.tokens || {},
           isPremium: data.isPremium || false,
           premiumUntil: data.premiumUntil || null,
-          selectedModel: data.selectedModel || null
+          selectedModel: data.selectedModel || null,
+          referredBy: data.referredBy || null,
+          referralsCount: data.referralsCount || 0,
+          subscription: data.subscription || null
         };
       }
       return {
@@ -47,7 +50,10 @@ function readUsageFile(chatId) {
         tokens: data.tokens || {},
         isPremium: data.isPremium || false,
         premiumUntil: data.premiumUntil || null,
-        selectedModel: data.selectedModel || null
+        selectedModel: data.selectedModel || null,
+        referredBy: data.referredBy || null,
+        referralsCount: data.referralsCount || 0,
+        subscription: data.subscription || null
       };
     } catch (e) {
       console.error(`Failed to read usage for chat ${chatId}:`, e.message);
@@ -299,6 +305,55 @@ export function getUserData(chatId) {
     return null;
   }
   return readUsageFile(chatId);
+}
+
+export function getUserSubscription(chatId) {
+  const data = readUsageFile(chatId);
+  return data.subscription || null;
+}
+
+export function setUserSubscription(chatId, subData) {
+  const data = readUsageFile(chatId);
+  data.subscription = subData;
+  writeUsageFile(chatId, data);
+  return data.subscription;
+}
+
+export function handleReferral(referrerChatId, newChatId) {
+  const referrerPath = getUsageFilePath(referrerChatId);
+  const newPath = getUsageFilePath(newChatId);
+
+  // If new user already exists and already has a profile (i.e. not a new signup), do not allow referral
+  if (fs.existsSync(newPath)) {
+    const newData = readUsageFile(newChatId);
+    if (newData.referredBy) {
+      return false; // Already referred
+    }
+  }
+
+  // Prevent self-referral
+  if (String(referrerChatId) === String(newChatId)) {
+    return false;
+  }
+
+  // Ensure referrer profile exists
+  if (!fs.existsSync(referrerPath)) {
+    return false;
+  }
+
+  const referrerData = readUsageFile(referrerChatId);
+  const newData = readUsageFile(newChatId);
+
+  newData.referredBy = String(referrerChatId);
+  newData.extraQuota = (newData.extraQuota || 0) + 500;
+
+  referrerData.extraQuota = (referrerData.extraQuota || 0) + 1000;
+  referrerData.referralsCount = (referrerData.referralsCount || 0) + 1;
+
+  writeUsageFile(referrerChatId, referrerData);
+  writeUsageFile(newChatId, newData);
+
+  return true;
 }
 
 

@@ -756,11 +756,12 @@ export const toolsDefinition = [
     type: 'function',
     function: {
       name: 'generate_tts',
-      description: 'Convert text to speech/voice note file in Indonesian.',
+      description: 'Convert text to speech/voice note file in Indonesian. Optionally with background music for a podcast/briefing effect.',
       parameters: {
         type: 'object',
         properties: {
-          text: { type: 'string', description: 'Text content to speak.' }
+          text: { type: 'string', description: 'Text content to speak.' },
+          podcastMode: { type: 'boolean', description: 'If true, adds a relaxing background music to make it sound like a podcast or audio briefing.' }
         },
         required: ['text']
       }
@@ -849,16 +850,19 @@ export const toolsDefinition = [
     type: 'function',
     function: {
       name: 'find_song',
-      description: 'Find and identify the background music/song used in a video from TikTok, Instagram Reels, YouTube Shorts, or any other supported video URL. Returns song title, artist, album, and a YouTube search link. Use this when the user asks: "lagu ini apa?", "cari sumber lagu", "identify music", "sound ini apa", dll.',
+      description: 'Find and identify the background music/song used in a video from TikTok, Instagram Reels, YouTube Shorts, or any local file path in the sandbox. Returns song title, artist, album, and a YouTube search link. Use this when the user asks: "lagu ini apa?", "cari sumber lagu", "identify music", "sound ini apa", dll.',
       parameters: {
         type: 'object',
         properties: {
           url: {
             type: 'string',
             description: 'The video URL (TikTok, Instagram Reels, YouTube Shorts, etc.) to extract the music info from.'
+          },
+          filePath: {
+            type: 'string',
+            description: 'The local file path (e.g., input_video.mp4, input_audio.mp3, dll) in the sandbox to identify the music from. Use this if the user replied to an audio or video and the file is already in the sandbox.'
           }
-        },
-        required: ['url']
+        }
       }
     }
   },
@@ -1126,13 +1130,130 @@ export const toolsDefinition = [
       parameters: {
         type: 'object',
         properties: {
-          host: { type: 'string', description: 'The remote server host address (IP or domain name).' },
-          username: { type: 'string', description: 'The SSH username for connection.' },
+          host: { type: 'string', description: 'The remote server host address (IP or domain name). Optional if saved session exists.' },
+          username: { type: 'string', description: 'The SSH username for connection. Optional if saved session exists.' },
           password: { type: 'string', description: 'The SSH password. Required if privateKey is not provided.' },
           privateKey: { type: 'string', description: 'Optional SSH private key content (PEM format).' },
           port: { type: 'number', description: 'The SSH connection port. Default is 22.' }
         },
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'save_vps_session',
+      description: 'Save VPS SSH login credentials for the current user session so they do not need to provide them again for monitoring or running commands.',
+      parameters: {
+        type: 'object',
+        properties: {
+          host: { type: 'string', description: 'The remote server host address (IP or domain name).' },
+          username: { type: 'string', description: 'The SSH username for connection.' },
+          password: { type: 'string', description: 'The SSH password. Required if privateKey is not provided.' },
+          privateKey: { type: 'string', description: 'Optional SSH private key content (PEM format).' },
+          port: { type: 'number', description: 'The SSH connection port. Default is 22.' },
+          sha256: { type: 'string', description: 'Optional SSH server host key SHA-256 fingerprint (hex format) for security verification.' }
+        },
         required: ['host', 'username']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'ssh_run_command',
+      description: 'Run an arbitrary shell command on the user\'s remote Linux server via SSH. Uses saved VPS session if credentials are omitted.',
+      parameters: {
+        type: 'object',
+        properties: {
+          command: { type: 'string', description: 'The bash/shell command to execute on the remote server.' },
+          host: { type: 'string', description: 'Optional. The remote server host address. Omit to use saved session.' },
+          username: { type: 'string', description: 'Optional. The SSH username.' },
+          password: { type: 'string', description: 'Optional. The SSH password.' },
+          privateKey: { type: 'string', description: 'Optional. SSH private key content.' },
+          port: { type: 'number', description: 'Optional. The SSH connection port.' }
+        },
+        required: ['command']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'ssh_upload_file',
+      description: 'Upload a local file from the bot workspace to the remote VPS server via SFTP. Uses saved VPS session if credentials are omitted.',
+      parameters: {
+        type: 'object',
+        properties: {
+          localPath: { type: 'string', description: 'Relative path of the local file in the workspace to upload.' },
+          remotePath: { type: 'string', description: 'Absolute path on the remote server where the file should be saved.' },
+          host: { type: 'string', description: 'Optional. The remote server host address. Omit to use saved session.' },
+          username: { type: 'string', description: 'Optional. The SSH username.' },
+          password: { type: 'string', description: 'Optional. The SSH password.' },
+          privateKey: { type: 'string', description: 'Optional. SSH private key content.' },
+          port: { type: 'number', description: 'Optional. The SSH connection port.' }
+        },
+        required: ['localPath', 'remotePath']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'ssh_download_file',
+      description: 'Download a file from the remote VPS server to the local bot workspace via SFTP. Uses saved VPS session if credentials are omitted.',
+      parameters: {
+        type: 'object',
+        properties: {
+          remotePath: { type: 'string', description: 'Absolute path of the file on the remote server to download.' },
+          localPath: { type: 'string', description: 'Relative path in the local workspace to save the downloaded file.' },
+          host: { type: 'string', description: 'Optional. The remote server host address. Omit to use saved session.' },
+          username: { type: 'string', description: 'Optional. The SSH username.' },
+          password: { type: 'string', description: 'Optional. The SSH password.' },
+          privateKey: { type: 'string', description: 'Optional. SSH private key content.' },
+          port: { type: 'number', description: 'Optional. The SSH connection port.' }
+        },
+        required: ['remotePath', 'localPath']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'ssh_setup_auto_monitor',
+      description: 'Setup automatic background monitoring on the VPS for high CPU usage and DDoS attacks. It installs a cron script that auto-blocks attacking IPs and alerts the user via Telegram.',
+      parameters: {
+        type: 'object',
+        properties: {
+          cpuThreshold: { type: 'number', description: 'CPU usage percentage threshold to trigger an alert. Default is 90.' },
+          ddosThreshold: { type: 'number', description: 'Max allowed concurrent connections per IP before auto-blocking. Default is 100.' },
+          host: { type: 'string', description: 'Optional. The remote server host address. Omit to use saved session.' },
+          username: { type: 'string', description: 'Optional. The SSH username.' },
+          password: { type: 'string', description: 'Optional. The SSH password.' },
+          privateKey: { type: 'string', description: 'Optional. SSH private key content.' },
+          port: { type: 'number', description: 'Optional. The SSH connection port.' }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'ssh_setup_2fa',
+      description: 'Automatically install and configure Google Authenticator 2FA (Two-Factor Authentication) for SSH login on the user\'s remote VPS/Linux server. This will install libpam-google-authenticator, configure PAM and sshd_config, generate the TOTP secret key and QR code, then return the secret key so the user can add it to their Google Authenticator app. Uses saved VPS session if credentials are omitted.',
+      parameters: {
+        type: 'object',
+        properties: {
+          targetUser: { type: 'string', description: 'The Linux username on the VPS to configure 2FA for. Defaults to the SSH login username.' },
+          host: { type: 'string', description: 'Optional. The remote server host address. Omit to use saved session.' },
+          username: { type: 'string', description: 'Optional. The SSH username.' },
+          password: { type: 'string', description: 'Optional. The SSH password.' },
+          privateKey: { type: 'string', description: 'Optional. SSH private key content.' },
+          port: { type: 'number', description: 'Optional. The SSH connection port.' }
+        },
+        required: []
       }
     }
   }
@@ -1213,115 +1334,95 @@ async function renderConsoleOutputToImage(terminalText, filePath, titlePrefix = 
   return consoleImageFilename;
 }
 
-const formatSshMonitorResults = (results) => {
-  let report = `🖥️ *SSH LINUX SERVER MONITOR REPORT* 🖥️\n\n`;
+function makeBar(percent, length = 10) {
+  const filled = Math.min(length, Math.max(0, Math.round((percent / 100) * length)));
+  return '█'.repeat(filled) + '░'.repeat(length - filled);
+}
 
-  // 1. System Info
-  if (results.sysInfo) {
-    const lines = results.sysInfo.stdout.split('\n');
-    const os = lines[2] ? lines[2].replace('PRETTY_NAME=', '').replace(/"/g, '') : 'Unknown Linux';
-    const uptime = lines[1] || 'Unknown';
-    report += `ℹ️ *Informasi Sistem:*\n`;
-    report += `• OS: *${os}*\n`;
-    report += `• Uptime & Load: _${uptime}_\n\n`;
-  }
+const formatSshMonitorResults = (results, host = 'VPS') => {
+  let report = `🖥️ *VPS ${host}*\n`;
 
-  // 2. CPU / Load
-  if (results.cpuLoad) {
-    const load = results.cpuLoad.stdout.split('\n')[0] || 'N/A';
-    report += `⚡ *Beban CPU (Load Avg):*\n• ${load}\n\n`;
-  }
-
-  // 3. Memory usage
+  // 1. RAM Usage
+  let ramPercent = 0;
+  let ramStr = '0% 0G/0G';
   if (results.memory) {
     const lines = results.memory.stdout.split('\n');
-    const memData = lines[1];
+    const memData = lines.find(l => l.toLowerCase().startsWith('mem:'));
     if (memData) {
       const parts = memData.trim().split(/\s+/);
-      const total = parseFloat(parts[1]) || 0;
-      const used = parseFloat(parts[2]) || 0;
-      const free = parseFloat(parts[3]) || 0;
-      const available = parseFloat(parts[6]) || parseFloat(parts[3]) || 0;
-      const pct = total !== 0 ? ((used / total) * 100).toFixed(1) : '0';
-      report += `🧠 *Penggunaan Memori (RAM):*\n`;
-      report += `• Total: *${total} MB*\n`;
-      report += `• Digunakan: *${used} MB (${pct}%)*\n`;
-      report += `• Bebas: *${free} MB*\n`;
-      report += `• Tersedia: *${available} MB*\n\n`;
+      const totalMb = parseFloat(parts[1]) || 0;
+      const usedMb = parseFloat(parts[2]) || 0;
+      const totalGb = (totalMb / 1024).toFixed(totalMb >= 10240 ? 0 : 1);
+      const usedGb = (usedMb / 1024).toFixed(1);
+      ramPercent = totalMb !== 0 ? (usedMb / totalMb) * 100 : 0;
+      ramStr = `${ramPercent.toFixed(1)}% ${usedGb}G/${totalGb}G`;
     }
   }
+  const ramBar = makeBar(ramPercent, 8);
 
-  // 4. Disk space
+  // 2. Disk Usage
+  let diskPercent = 0;
+  let diskStr = '0% 0G/0G';
   if (results.disk) {
-    report += `💾 *Ruang Penyimpanan (Disk df -h):*\n`;
     const lines = results.disk.stdout.split('\n');
-    let hasDiskInfo = false;
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
-      const parts = line.split(/\s+/);
-      const fs = parts[0];
+    const rootLine = lines.find(l => {
+      const parts = l.trim().split(/\s+/);
+      return parts[5] === '/';
+    }) || lines.find(l => {
+      const parts = l.trim().split(/\s+/);
+      return parts[0].startsWith('/dev/') && parts[5] === '/';
+    });
+    
+    if (rootLine) {
+      const parts = rootLine.trim().split(/\s+/);
       const size = parts[1];
       const used = parts[2];
-      const pct = parts[4];
-      const mount = parts[5];
-      if (mount === '/' || mount?.startsWith('/mnt') || mount?.startsWith('/media') || fs?.startsWith('/dev/')) {
-        report += `• *${mount}* (${fs}): *${used}* / *${size}* (${pct} terpakai)\n`;
-        hasDiskInfo = true;
-      }
+      diskPercent = parseFloat(parts[4]) || 0;
+      diskStr = `${diskPercent}%   ${used}/${size}`;
     }
-    if (!hasDiskInfo) {
-      report += `• Tidak dapat memuat info disk.\n`;
-    }
-    report += `\n`;
   }
+  const diskBar = makeBar(diskPercent, 12);
 
-  // 5. Network Traffic
-  if (results.network) {
-    report += `🌐 *Trafik Jaringan (/proc/net/dev):*\n`;
-    const lines = results.network.stdout.split('\n');
-    let foundDev = false;
-    for (const line of lines) {
-      if (line.includes(':')) {
-        const parts = line.trim().split(':');
-        const iface = parts[0].trim();
-        if (iface === 'lo') continue;
-        const stats = parts[1].trim().split(/\s+/);
-        const rxBytes = parseInt(stats[0] || '0');
-        const txBytes = parseInt(stats[8] || '0');
-        const rxMb = (rxBytes / (1024 * 1024)).toFixed(2);
-        const txMb = (txBytes / (1024 * 1024)).toFixed(2);
-        report += `• *${iface}*: Diterima: *${rxMb} MB* | Dikirim: *${txMb} MB*\n`;
-        foundDev = true;
-      }
-    }
-    if (!foundDev) {
-      report += `• Tidak ada interface aktif selain loopback.\n`;
-    }
-    report += `\n`;
+  // 3. CPU Load
+  let cpuLoadVal = 0;
+  if (results.cpuLoad) {
+    const parts = results.cpuLoad.stdout.split(/\s+/);
+    cpuLoadVal = parseFloat(parts[0]) || 0;
   }
+  const cpuFilled = Math.min(4, Math.max(0, Math.round(Math.min(1, cpuLoadVal) * 4)));
+  const cpuBar = '█'.repeat(cpuFilled) + '░'.repeat(4 - cpuFilled);
 
-  // 6. Top CPU Processes
-  if (results.processes) {
-    report += `📊 *Proses Teratas (Penggunaan CPU tertinggi):*\n`;
-    report += `\`\`\`\n`;
-    const lines = results.processes.stdout.split('\n');
-    const header = `  PID  %CPU  %MEM  COMMAND`;
-    report += header + `\n`;
-    for (let i = 1; i < Math.min(lines.length, 6); i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
-      const parts = line.split(/\s+/);
-      const pid = parts[0];
-      const cpu = parts[3];
-      const mem = parts[4];
-      let cmd = parts.slice(5).join(' ');
-      if (cmd.length > 25) cmd = cmd.substring(0, 22) + '...';
-      const row = `${pid.padStart(5)}  ${cpu.padStart(4)}% ${mem.padStart(4)}%  ${cmd}`;
-      report += row + '\n';
+  // 4. Swap Usage
+  let swapPercent = 0;
+  let swapStr = '0% 0G/0G';
+  if (results.memory) {
+    const lines = results.memory.stdout.split('\n');
+    const swapLine = lines.find(l => l.toLowerCase().startsWith('swap:'));
+    if (swapLine) {
+      const parts = swapLine.trim().split(/\s+/);
+      const totalSwapMb = parseFloat(parts[1]) || 0;
+      const usedSwapMb = parseFloat(parts[2]) || 0;
+      const totalSwapGb = (totalSwapMb / 1024).toFixed(totalSwapMb >= 10240 ? 0 : 1);
+      const usedSwapGb = (usedSwapMb / 1024).toFixed(1);
+      swapPercent = totalSwapMb !== 0 ? (usedSwapMb / totalSwapMb) * 100 : 0;
+      swapStr = `${swapPercent.toFixed(0)}%    ${usedSwapGb}G/${totalSwapGb}G`;
     }
-    report += `\`\`\``;
   }
+  const swapBar = makeBar(swapPercent, 4);
+
+  // 5. Health Status
+  let statusStr = '🟢 Status: Sehat Walafiat';
+  if (ramPercent > 90 || diskPercent > 95 || cpuLoadVal > 4.0) {
+    statusStr = '🔴 Status: Kritis';
+  } else if (ramPercent > 80 || diskPercent > 85 || cpuLoadVal > 2.0) {
+    statusStr = '🟡 Status: Perlu Perhatian';
+  }
+  
+  report += `${statusStr}\n\n`;
+  report += `🧠 *RAM*    \`[${ramBar}]\` ${ramStr}\n`;
+  report += `💾 *Disk*   \`[${diskBar}]\` ${diskStr}\n`;
+  report += `⚡ *CPU*    \`[${cpuBar}]\` ${cpuLoadVal.toFixed(2)}\n`;
+  report += `🔄 *Swap*   \`[${swapBar}]\` ${swapStr}\n`;
 
   return report;
 };
@@ -1499,27 +1600,163 @@ const unifiedSearch = async (query, signal) => {
   throw new Error('All search engines (Google, Bing, DuckDuckGo, Yahoo) failed or returned no results.');
 };
 
+function getVpsSession(chatId) {
+  const sessionPath = path.join(config.memoryDir, `vps_session_${chatId}.json`);
+  if (fs.existsSync(sessionPath)) {
+    try {
+      return JSON.parse(fs.readFileSync(sessionPath, 'utf8'));
+    } catch (e) {
+      console.error('Failed to read VPS session:', e.message);
+    }
+  }
+  return null;
+}
+
+function saveVpsSession(chatId, session) {
+  const sessionPath = path.join(config.memoryDir, `vps_session_${chatId}.json`);
+  try {
+    fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2), 'utf8');
+    return true;
+  } catch (e) {
+    console.error('Failed to save VPS session:', e.message);
+    return false;
+  }
+}
+
+function resolveVpsCredentials(chatId, host, username, password, port, privateKey) {
+  let finalHost = host;
+  let finalUser = username;
+  let finalPass = password;
+  let finalPort = port;
+  let finalKey = privateKey;
+
+  const saved = getVpsSession(chatId);
+  if (saved) {
+    if (!finalHost || finalHost === saved.host || !finalUser || (!finalPass && !finalKey)) {
+      if (!finalHost) finalHost = saved.host;
+      if (!finalUser) finalUser = saved.username;
+      if (!finalPass) finalPass = saved.password;
+      if (!finalPort || finalPort === 22) finalPort = saved.port || 22;
+      if (!finalKey) finalKey = saved.privateKey;
+    }
+  }
+
+  return { finalHost, finalUser, finalPass, finalPort, finalKey };
+}
+
+function getSshConnectionOptions(chatId, finalHost, finalPort, finalUser, finalPass, finalKey) {
+  const connOpts = {
+    host: finalHost,
+    port: finalPort,
+    username: finalUser,
+    readyTimeout: 20000,
+    agent: null,
+    tryKeyboard: false,
+    hostHash: 'sha256',
+    hostVerifier: (hashedKey) => {
+      const saved = getVpsSession(chatId);
+      if (saved && saved.host === finalHost) {
+        if (!saved.sha256) {
+          saved.sha256 = hashedKey;
+          saveVpsSession(chatId, saved);
+          console.log(`[SSH] Automatically saved SHA-256 fingerprint for ${finalHost}: ${hashedKey}`);
+        } else if (saved.sha256 !== hashedKey) {
+          console.error(`[SSH] Host fingerprint mismatch! Expected: ${saved.sha256}, Got: ${hashedKey}`);
+          return false;
+        }
+      }
+      return true;
+    }
+  };
+
+  if (finalPass) connOpts.password = finalPass;
+  if (finalKey) connOpts.privateKey = finalKey;
+
+  return connOpts;
+}
+
 export const toolHandlers = {
+  save_vps_session: async ({ host, username, password, port = 22, privateKey = null, sha256 = null }, chatId, signal) => {
+    const success = saveVpsSession(chatId, { host, username, password, port, privateKey, sha256 });
+    if (success) {
+      return `Berhasil menyimpan sesi login VPS untuk host ${host} dengan user ${username}. Anda sekarang dapat memanggil alat ssh_monitor_server atau ssh_run_command tanpa memasukkan credentials lagi.`;
+    }
+    return `Gagal menyimpan sesi VPS.`;
+  },
+
+  ssh_run_command: async ({ command, host, username, password, port = 22, privateKey = null }, chatId, signal) => {
+    try {
+      const { finalHost, finalUser, finalPass, finalPort, finalKey } = resolveVpsCredentials(chatId, host, username, password, port, privateKey);
+      
+      if (!finalHost) {
+        return `Error: Anda belum menyediakan kredensial VPS dan tidak ada sesi yang tersimpan. Gunakan alat save_vps_session terlebih dahulu atau masukkan parameter lengkap.`;
+      }
+
+      if (!finalPass && !finalKey) {
+        return `Error: Mohon masukkan password atau privateKey untuk melakukan koneksi SSH ke ${finalHost}.`;
+      }
+
+      const { Client } = await import('ssh2');
+      const connOpts = getSshConnectionOptions(chatId, finalHost, finalPort, finalUser, finalPass, finalKey);
+
+      console.log(`[SSH Run Command] Executing on ${finalUser}@${finalHost}:${finalPort} -> ${command}`);
+      
+      const result = await new Promise((resolve, reject) => {
+        const conn = new Client();
+        if (signal) {
+          signal.addEventListener('abort', () => {
+            conn.end();
+            reject(new Error('STOPPED'));
+          });
+        }
+        conn.on('ready', () => {
+          conn.exec(command, (err, stream) => {
+            if (err) {
+              conn.end();
+              return resolve({ stdout: '', stderr: err.message });
+            }
+            let stdout = '';
+            let stderr = '';
+            stream.on('close', (code, signalCode) => {
+              conn.end();
+              resolve({ stdout: stdout.trim(), stderr: stderr.trim(), code });
+            }).on('data', (data) => {
+              stdout += data;
+            }).stderr.on('data', (data) => {
+              stderr += data;
+            });
+          });
+        }).on('error', (err) => {
+          conn.end();
+          reject(err);
+        }).connect(connOpts);
+      });
+      
+      let output = `🖥️ *Eksekusi Perintah VPS (${finalHost})*\n\`> ${command}\`\n\n`;
+      if (result.stdout) output += `*Output:*\n\`\`\`bash\n${result.stdout}\n\`\`\`\n`;
+      if (result.stderr) output += `*Error:*\n\`\`\`bash\n${result.stderr}\n\`\`\`\n`;
+      if (!result.stdout && !result.stderr) output += `*(Tidak ada output)*`;
+      
+      return output;
+    } catch (err) {
+      if (err.message === 'STOPPED') throw err;
+      return `Gagal menjalankan perintah SSH: ${err.message}`;
+    }
+  },
+
   ssh_monitor_server: async ({ host, username, password, port = 22, privateKey = null }, chatId, signal) => {
     try {
+      const { finalHost, finalUser, finalPass, finalPort, finalKey } = resolveVpsCredentials(chatId, host, username, password, port, privateKey);
+      
+      if (!finalHost) {
+        return `Error: Anda belum menyediakan kredensial VPS dan tidak ada sesi yang tersimpan. Gunakan alat save_vps_session terlebih dahulu atau masukkan parameter lengkap.`;
+      }
+
       const { Client } = await import('ssh2');
+      const connOpts = getSshConnectionOptions(chatId, finalHost, finalPort, finalUser, finalPass, finalKey);
       
-      const connOpts = {
-        host,
-        port,
-        username,
-        readyTimeout: 10000
-      };
-      
-      if (password) {
-        connOpts.password = password;
-      }
-      if (privateKey) {
-        connOpts.privateKey = privateKey;
-      }
-      
-      if (!password && !privateKey) {
-        return `Error: Mohon masukkan password atau privateKey untuk melakukan koneksi SSH ke ${host}.`;
+      if (!finalPass && !finalKey) {
+        return `Error: Mohon masukkan password atau privateKey untuk melakukan koneksi SSH ke ${finalHost}.`;
       }
       
       const commands = [
@@ -1531,7 +1768,7 @@ export const toolHandlers = {
         { name: 'processes', cmd: 'ps -eo pid,ppid,cmd,%cpu,%mem --sort=-%cpu | head -n 10 || true' }
       ];
       
-      console.log(`[SSH Monitor] Connecting to ${username}@${host}:${port}...`);
+      console.log(`[SSH Monitor] Connecting to ${finalUser}@${finalHost}:${finalPort}...`);
       
       const results = await new Promise((resolve, reject) => {
         const conn = new Client();
@@ -1583,10 +1820,362 @@ export const toolHandlers = {
         }).connect(connOpts);
       });
       
-      return formatSshMonitorResults(results);
+      return formatSshMonitorResults(results, finalHost);
     } catch (err) {
       if (err.message === 'STOPPED') throw err;
       return `Gagal memantau server via SSH: ${err.message}. Pastikan host, port, username, dan password/privateKey Anda benar.`;
+    }
+  },
+
+  ssh_upload_file: async ({ localPath, remotePath, host, username, password, port = 22, privateKey = null }, chatId, signal) => {
+    try {
+      ensureSandbox();
+      const resolvedLocal = path.resolve(config.workspaceDir, localPath);
+      if (!isPathSafe(resolvedLocal)) {
+        return `Error: Access Denied: Path ${localPath} is outside sandbox workspace.`;
+      }
+      if (!fs.existsSync(resolvedLocal)) {
+        return `Error: Local file not found at ${localPath}`;
+      }
+
+      const { finalHost, finalUser, finalPass, finalPort, finalKey } = resolveVpsCredentials(chatId, host, username, password, port, privateKey);
+      if (!finalHost) return `Error: Kredensial VPS tidak ada. Gunakan alat save_vps_session terlebih dahulu.`;
+      if (!finalPass && !finalKey) return `Error: Mohon masukkan password atau privateKey untuk koneksi SSH.`;
+
+      const { Client } = await import('ssh2');
+      const connOpts = getSshConnectionOptions(chatId, finalHost, finalPort, finalUser, finalPass, finalKey);
+
+      console.log(`[SSH Upload] Uploading ${localPath} to ${finalUser}@${finalHost}:${finalPort}:${remotePath}`);
+      
+      return await new Promise((resolve, reject) => {
+        const conn = new Client();
+        if (signal) {
+          signal.addEventListener('abort', () => { conn.end(); reject(new Error('STOPPED')); });
+        }
+        conn.on('ready', () => {
+          conn.sftp((err, sftp) => {
+            if (err) { conn.end(); return resolve(`Error SFTP: ${err.message}`); }
+            sftp.fastPut(resolvedLocal, remotePath, (err2) => {
+              conn.end();
+              if (err2) return resolve(`Gagal mengunggah file: ${err2.message}`);
+              resolve(`Berhasil mengunggah file lokal ${localPath} ke ${remotePath} di server.`);
+            });
+          });
+        }).on('error', (err) => {
+          conn.end();
+          reject(err);
+        }).connect(connOpts);
+      });
+    } catch (err) {
+      if (err.message === 'STOPPED') throw err;
+      return `Gagal upload file: ${err.message}`;
+    }
+  },
+
+  ssh_download_file: async ({ remotePath, localPath, host, username, password, port = 22, privateKey = null }, chatId, signal) => {
+    try {
+      ensureSandbox();
+      const resolvedLocal = path.resolve(config.workspaceDir, localPath);
+      if (!isPathSafe(resolvedLocal)) {
+        return `Error: Access Denied: Path ${localPath} is outside sandbox workspace.`;
+      }
+
+      const { finalHost, finalUser, finalPass, finalPort, finalKey } = resolveVpsCredentials(chatId, host, username, password, port, privateKey);
+      if (!finalHost) return `Error: Kredensial VPS tidak ada. Gunakan alat save_vps_session terlebih dahulu.`;
+      if (!finalPass && !finalKey) return `Error: Mohon masukkan password atau privateKey untuk koneksi SSH.`;
+
+      const { Client } = await import('ssh2');
+      const connOpts = getSshConnectionOptions(chatId, finalHost, finalPort, finalUser, finalPass, finalKey);
+
+      console.log(`[SSH Download] Downloading ${remotePath} from ${finalUser}@${finalHost}:${finalPort} to ${localPath}`);
+      
+      return await new Promise((resolve, reject) => {
+        const conn = new Client();
+        if (signal) {
+          signal.addEventListener('abort', () => { conn.end(); reject(new Error('STOPPED')); });
+        }
+        conn.on('ready', () => {
+          conn.sftp((err, sftp) => {
+            if (err) { conn.end(); return resolve(`Error SFTP: ${err.message}`); }
+            sftp.fastGet(remotePath, resolvedLocal, (err2) => {
+              conn.end();
+              if (err2) return resolve(`Gagal mengunduh file: ${err2.message}`);
+              resolve(`Berhasil mengunduh file ${remotePath} dari server ke file lokal: ${localPath}`);
+            });
+          });
+        }).on('error', (err) => {
+          conn.end();
+          reject(err);
+        }).connect(connOpts);
+      });
+    } catch (err) {
+      if (err.message === 'STOPPED') throw err;
+      return `Gagal download file: ${err.message}`;
+    }
+  },
+
+  ssh_setup_auto_monitor: async ({ cpuThreshold = 90, ddosThreshold = 100, host, username, password, port = 22, privateKey = null }, chatId, signal) => {
+    try {
+      const { finalHost, finalUser, finalPass, finalPort, finalKey } = resolveVpsCredentials(chatId, host, username, password, port, privateKey);
+      if (!finalHost) return `Error: Kredensial VPS tidak ada. Gunakan alat save_vps_session terlebih dahulu.`;
+      if (!finalPass && !finalKey) return `Error: Mohon masukkan password atau privateKey untuk koneksi SSH.`;
+
+      const botToken = config.telegramToken;
+      if (!botToken) return `Error: Telegram Bot Token tidak ditemukan di konfigurasi server bot.`;
+
+      const bashScript = `#!/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+BOT_TOKEN="${botToken}"
+CHAT_ID="${chatId}"
+CPU_THRESH=${cpuThreshold}
+DDOS_THRESH=${ddosThreshold}
+
+send_alert() {
+  local message=\$1
+  curl -s -X POST "https://api.telegram.org/bot\${BOT_TOKEN}/sendMessage" -d chat_id="\${CHAT_ID}" -d text="\${message}" > /dev/null
+}
+
+CPU_USAGE=\$(top -bn1 | grep -i "Cpu(s)" | sed "s/.*, *\\([0-9.]*\\)%* id.*/\\1/" | awk '{print 100 - \$1}')
+CPU_INT=\${CPU_USAGE%.*}
+if [ ! -z "\$CPU_INT" ] && [ "\$CPU_INT" -ge "\$CPU_THRESH" ]; then
+  send_alert "⚠️ [VPS ALERT - ${finalHost}] CPU Usage is High! Current usage: \${CPU_USAGE}%"
+fi
+
+if ! command -v netstat >/dev/null 2>&1; then
+  apt-get update && apt-get install -y net-tools || yum install -y net-tools
+fi
+
+NETSTAT_OUT=\$(netstat -ntu | awk '{print \$5}' | cut -d: -f1 -s | grep -v '^127.0.0.1$' | sort | uniq -c | sort -nr)
+while read -r line; do
+  COUNT=\$(echo \$line | awk '{print \$1}')
+  IP=\$(echo \$line | awk '{print \$2}')
+  if [ ! -z "\$COUNT" ] && [ ! -z "\$IP" ] && [ "\$COUNT" -ge "\$DDOS_THRESH" ]; then
+    iptables -C INPUT -s "\$IP" -j DROP &>/dev/null
+    if [ \$? -ne 0 ]; then
+      iptables -I INPUT -s "\$IP" -j DROP
+      send_alert "🚨 [VPS ANTI-DDOS - ${finalHost}] Auto-blocked IP: \$IP (\$COUNT concurrent connections)"
+    fi
+  fi
+done <<< "\$NETSTAT_OUT"
+`;
+
+      const { Client } = await import('ssh2');
+      const connOpts = getSshConnectionOptions(chatId, finalHost, finalPort, finalUser, finalPass, finalKey);
+
+      console.log(`[SSH Auto Monitor] Deploying to ${finalUser}@${finalHost}:${finalPort}`);
+      
+      return await new Promise((resolve, reject) => {
+        const conn = new Client();
+        if (signal) {
+          signal.addEventListener('abort', () => { conn.end(); reject(new Error('STOPPED')); });
+        }
+        conn.on('ready', () => {
+          const b64Script = Buffer.from(bashScript).toString('base64');
+          const deployCmd = `
+            echo "${b64Script}" | base64 -d > /usr/local/bin/vps_monitor.sh &&
+            chmod +x /usr/local/bin/vps_monitor.sh &&
+            (crontab -l 2>/dev/null | grep -v vps_monitor.sh; echo "* * * * * /usr/local/bin/vps_monitor.sh") | crontab - &&
+            service cron restart || systemctl restart cron || systemctl restart crond || true
+          `;
+          
+          conn.exec(deployCmd, (err, stream) => {
+            if (err) {
+              conn.end();
+              return resolve(`Error deploying script: ${err.message}`);
+            }
+            let stdout = '', stderr = '';
+            stream.on('close', (code) => {
+              conn.end();
+              if (code === 0) {
+                resolve(`Berhasil memasang sistem Auto-Monitoring di VPS (${finalHost}).\n\n⚙️ Konfigurasi:\n- CPU Alert: > ${cpuThreshold}%\n- Anti-DDoS Auto-Block: > ${ddosThreshold} koneksi/IP\n\nScript berjalan setiap menit. Peringatan akan dikirimkan langsung ke chat ini jika terdeteksi anomali.`);
+              } else {
+                resolve(`Gagal memasang sistem. Pastikan user '${finalUser}' memiliki akses root (sudo) untuk menulis ke /usr/local/bin dan /etc/cron.d. Error: ${stderr}`);
+              }
+            }).on('data', (data) => stdout += data).stderr.on('data', (data) => stderr += data);
+          });
+        }).on('error', (err) => {
+          conn.end();
+          reject(err);
+        }).connect(connOpts);
+      });
+    } catch (err) {
+      if (err.message === 'STOPPED') throw err;
+      return `Gagal setup auto monitor: ${err.message}`;
+    }
+  },
+
+  ssh_setup_2fa: async ({ targetUser, host, username, password, port = 22, privateKey = null }, chatId, signal) => {
+    try {
+      const { finalHost, finalUser, finalPass, finalPort, finalKey } = resolveVpsCredentials(chatId, host, username, password, port, privateKey);
+      if (!finalHost) return `Error: Kredensial VPS tidak ada. Gunakan alat save_vps_session terlebih dahulu.`;
+      if (!finalPass && !finalKey) return `Error: Mohon masukkan password atau privateKey untuk koneksi SSH ke ${finalHost}.`;
+
+      const user2fa = targetUser || finalUser;
+      // Build script as a clean multiline string — base64-encode it to avoid any
+      // shell escaping issues when sending to the remote server via SSH.
+      const setupScript = `#!/bin/bash
+export DEBIAN_FRONTEND=noninteractive
+
+# 1. Install libpam-google-authenticator
+if command -v apt-get > /dev/null 2>&1; then
+  apt-get update -qq && apt-get install -y -qq libpam-google-authenticator
+elif command -v yum > /dev/null 2>&1; then
+  yum install -y epel-release && yum install -y google-authenticator
+else
+  echo "ERROR:PKG_MANAGER_NOT_SUPPORTED"
+  exit 1
+fi
+
+# 2. Generate 2FA secret for target user
+USER_2FA="${user2fa}"
+USER_HOME=$(eval echo ~$USER_2FA)
+if [ "$(whoami)" = "$USER_2FA" ]; then
+  google-authenticator -t -d -f -r 3 -R 30 -W -q 2>/dev/null || true
+else
+  su - "$USER_2FA" -c "google-authenticator -t -d -f -r 3 -R 30 -W -q" 2>/dev/null || true
+fi
+
+# 3. Read generated secret
+SECRET_FILE="$USER_HOME/.google_authenticator"
+if [ ! -f "$SECRET_FILE" ]; then
+  echo "ERROR:SECRET_NOT_FOUND"
+  exit 1
+fi
+SECRET_KEY=$(head -n 1 "$SECRET_FILE")
+SCRATCH_CODES=$(grep -E "^[0-9]{8}$" "$SECRET_FILE" | head -n 5)
+
+# 4. Configure PAM
+PAM_FILE="/etc/pam.d/sshd"
+cp "$PAM_FILE" "$PAM_FILE.bak.2fa" 2>/dev/null || true
+if ! grep -q "pam_google_authenticator.so" "$PAM_FILE"; then
+  echo "auth required pam_google_authenticator.so" >> "$PAM_FILE"
+fi
+
+# 5. Configure sshd_config
+SSHD_CONF="/etc/ssh/sshd_config"
+cp "$SSHD_CONF" "$SSHD_CONF.bak.2fa" 2>/dev/null || true
+sed -i 's/^#*ChallengeResponseAuthentication.*/ChallengeResponseAuthentication yes/' "$SSHD_CONF"
+grep -q "^ChallengeResponseAuthentication" "$SSHD_CONF" || echo "ChallengeResponseAuthentication yes" >> "$SSHD_CONF"
+sed -i 's/^#*KbdInteractiveAuthentication.*/KbdInteractiveAuthentication yes/' "$SSHD_CONF"
+grep -q "^KbdInteractiveAuthentication" "$SSHD_CONF" || echo "KbdInteractiveAuthentication yes" >> "$SSHD_CONF"
+sed -i 's/^#*UsePAM.*/UsePAM yes/' "$SSHD_CONF"
+grep -q "^UsePAM" "$SSHD_CONF" || echo "UsePAM yes" >> "$SSHD_CONF"
+
+# 6. Restart SSH
+systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || service ssh restart 2>/dev/null || true
+
+# 7. Generate current TOTP code (single-line python3)
+CURRENT_CODE=""
+if command -v python3 > /dev/null 2>&1; then
+  CURRENT_CODE=$(python3 -c "import hmac,hashlib,struct,time,base64; k=base64.b32decode('$SECRET_KEY',True); t=int(time.time())//30; m=hmac.new(k,struct.pack('>Q',t),hashlib.sha1).digest(); o=m[-1]&0xf; print('%06d'%((struct.unpack('>I',m[o:o+4])[0]&0x7fffffff)%1000000))" 2>/dev/null || echo "")
+elif command -v oathtool > /dev/null 2>&1; then
+  CURRENT_CODE=$(oathtool --base32 --totp "$SECRET_KEY" 2>/dev/null || echo "")
+fi
+
+# 8. Output results
+echo "SETUP_OK"
+echo "SECRET:$SECRET_KEY"
+echo "CURRENT_CODE:$CURRENT_CODE"
+echo "SCRATCH_START"
+echo "$SCRATCH_CODES"
+echo "SCRATCH_END"
+`;
+
+      const { Client } = await import('ssh2');
+      const connOpts = getSshConnectionOptions(chatId, finalHost, finalPort, finalUser, finalPass, finalKey);
+
+      console.log(`[SSH Setup 2FA] Deploying 2FA to ${finalUser}@${finalHost}:${finalPort} for user "${user2fa}" via base64`);
+
+      // Encode script as base64 → decode + run on remote (no escaping issues)
+      const b64Script = Buffer.from(setupScript).toString('base64');
+      const deployCmd = `echo "${b64Script}" | base64 -d | bash`;
+
+      const result = await new Promise((resolve, reject) => {
+        const conn = new Client();
+        if (signal) {
+          signal.addEventListener('abort', () => { conn.end(); reject(new Error('STOPPED')); });
+        }
+        conn.on('ready', () => {
+          conn.exec(deployCmd, (err, stream) => {
+            if (err) { conn.end(); return resolve({ stdout: '', stderr: err.message, code: -1 }); }
+            let stdout = '', stderr = '';
+            stream.on('close', (code) => {
+              conn.end();
+              resolve({ stdout: stdout.trim(), stderr: stderr.trim(), code });
+            }).on('data', (data) => { stdout += data; }).stderr.on('data', (data) => { stderr += data; });
+          });
+        }).on('error', (err) => { conn.end(); reject(err); }).connect(connOpts);
+      });
+
+      console.log(`[SSH Setup 2FA] stdout: ${result.stdout.substring(0, 300)}`);
+      if (result.stderr) console.log(`[SSH Setup 2FA] stderr: ${result.stderr.substring(0, 300)}`);
+
+      if (!result.stdout.includes('SETUP_OK')) {
+        const errDetail = result.stderr || result.stdout || 'Unknown error';
+        if (errDetail.includes('PKG_MANAGER_NOT_SUPPORTED')) {
+          return `❌ Gagal: Sistem operasi VPS tidak menggunakan apt atau yum. Package manager tidak didukung.`;
+        }
+        return `❌ Gagal memasang 2FA pada VPS (${finalHost}).\n\nDetail error:\n\`\`\`\n${errDetail.substring(0, 800)}\n\`\`\``;
+      }
+
+      // Parse output
+      const lines = result.stdout.split('\n');
+      const secretLine = lines.find(l => l.startsWith('SECRET:'));
+      const secretKey = secretLine ? secretLine.replace('SECRET:', '').trim() : '(tidak ditemukan)';
+
+      const currentCodeLine = lines.find(l => l.startsWith('CURRENT_CODE:'));
+      const currentCode = currentCodeLine ? currentCodeLine.replace('CURRENT_CODE:', '').trim() : '';
+
+      const scratchStart = lines.indexOf('SCRATCH_START');
+      const scratchEnd = lines.indexOf('SCRATCH_END');
+      // Filter only 8-digit numeric scratch codes (ignore option lines from .google_authenticator)
+      const scratchRaw = (scratchStart !== -1 && scratchEnd !== -1)
+        ? lines.slice(scratchStart + 1, scratchEnd).filter(l => /^\d{8}$/.test(l.trim()))
+        : [];
+      const scratchCodesFormatted = scratchRaw.length > 0
+        ? scratchRaw.map((c, i) => `  ${i + 1}. ${c.trim()}`).join('\n')
+        : '  (tidak ditemukan)';
+
+      const totpUrl = `otpauth://totp/VPS%20${encodeURIComponent(finalHost)}%20(${encodeURIComponent(user2fa)})?secret=${secretKey}&issuer=VPS`;
+
+      const currentCodeSection = currentCode
+        ? [``, `⏱️ *Kode Verifikasi Sekarang (berlaku ~30 detik):*`, `\`\`\``, currentCode, `\`\`\``, `_(gunakan kode ini untuk tes login pertama kali)_`]
+        : [];
+
+      return [
+        `✅ *Google Authenticator 2FA berhasil dipasang di VPS (${finalHost})!*`,
+        ``,
+        `👤 *User:* \`${user2fa}\``,
+        ``,
+        `━━━━━━━━━━━━━━━━━━━━━━━━`,
+        `🔑 *Secret Key (Setup Manual):*`,
+        `\`\`\``,
+        secretKey,
+        `\`\`\``,
+        `Cara input ke Google Authenticator:`,
+        `1. Buka Google Authenticator → ketuk *+*`,
+        `2. Pilih *"Enter a setup key"*`,
+        `3. Nama akun: \`VPS ${finalHost} (${user2fa})\``,
+        `4. Kunci (Key): \`${secretKey}\``,
+        `5. Jenis: *Time based* → ketuk *Add*`,
+        ``,
+        `━━━━━━━━━━━━━━━━━━━━━━━━`,
+        `🆘 *Kode Cadangan / Emergency Backup Codes:*`,
+        `_(Gunakan jika HP hilang. Setiap kode hanya bisa dipakai 1x)_`,
+        `\`\`\``,
+        scratchCodesFormatted,
+        `\`\`\``,
+        ...currentCodeSection,
+        ``,
+        `━━━━━━━━━━━━━━━━━━━━━━━━`,
+        `🔗 *TOTP URL (import ke Authy / Bitwarden dll):*`,
+        `\`${totpUrl}\``,
+        ``,
+        `⚠️ *PENTING:* JANGAN tutup sesi SSH sekarang! Buka terminal baru dan test login dulu. Pastikan diminta password + kode 2FA sebelum menutup sesi ini.`,
+      ].join('\n');
+    } catch (err) {
+      if (err.message === 'STOPPED') throw err;
+      return `Gagal setup 2FA SSH: ${err.message}`;
     }
   },
 
@@ -4301,19 +4890,68 @@ BMKG URL: https://www.bmkg.go.id/cuaca/prakiraan-cuaca-indonesia.bmkg`;
                `• Organisasi: *${data.org || '-'}*\n` +
                `• AS/Jaringan: *${data.as || '-'}*`;
       } else {
-        const res = await axios.get(`https://api.hackertarget.com/whois/?q=${cleaned}`, { timeout: 8000, httpsAgent, signal: signal || undefined });
-        const data = res.data;
-        if (!data || data.startsWith('error')) {
-          return `Gagal melakukan lookup WHOIS untuk domain ${cleaned}.`;
+        // Try who-dat API first
+        try {
+          const res = await axios.get(`https://who-dat.as93.net/${cleaned}`, { timeout: 8000, signal: signal || undefined });
+          const data = res.data;
+          if (data && data.domain) {
+            if (data.isRegistered === false) {
+              return `🔍 *WHOIS DOMAIN LOOKUP* 🔍\n\nDomain *${cleaned.toUpperCase()}* tersedia untuk didaftarkan (belum terdaftar).`;
+            }
+            const nsString = (data.nameservers || []).map(ns => `• ${ns.name}`).join('\n') || '-';
+            const created = data.dates?.created ? new Date(data.dates.created).toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' }) : '-';
+            const expires = data.dates?.expires ? new Date(data.dates.expires).toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' }) : '-';
+            const updated = data.dates?.updated ? new Date(data.dates.updated).toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' }) : '-';
+            
+            return `🔍 *WHOIS DOMAIN LOOKUP* 🔍\n\n` +
+                   `• Domain: *${data.domain.toUpperCase()}*\n` +
+                   `• Status Registrasi: *Terdaftar (Registered)*\n` +
+                   `• Registrar: *${data.registrar?.name || '-'}*\n` +
+                   `• Tgl Registrasi: *${created}*\n` +
+                   `• Tgl Kedaluwarsa: *${expires}*\n` +
+                   `• Terakhir Diperbarui: *${updated}*\n\n` +
+                   `🖥️ *NAMESERVERS:*\n${nsString}\n\n` +
+                   `✉️ *Abuse Email:* ${data.registrar?.abuseEmail || '-'}\n` +
+                   `📞 *Abuse Phone:* ${data.registrar?.abusePhone || '-'}`;
+          }
+        } catch (apiErr) {
+          console.warn('Who-dat WHOIS lookup failed, trying rdap.org fallback:', apiErr.message);
         }
-        
-        const lines = data.split('\n');
-        const truncated = lines.slice(0, 30).join('\n');
-        const suffix = lines.length > 30 ? '\n\n...(Output dipotong untuk kenyamanan pembaca)...' : '';
-        
-        return `🔍 *WHOIS DOMAIN LOOKUP* 🔍\n\n` +
-               `Domain: *${cleaned}*\n\n` +
-               `\`\`\`\n${truncated}${suffix}\n\`\`\``;
+
+        // Fallback to rdap.org API
+        try {
+          const res = await axios.get(`https://rdap.org/domain/${cleaned}`, { timeout: 8000, signal: signal || undefined });
+          const d = res.data;
+          if (d && d.ldhName) {
+            const events = d.events || [];
+            const createdRaw = events.find(e => e.eventAction === 'registration')?.eventDate;
+            const expiresRaw = events.find(e => e.eventAction === 'expiration')?.eventDate;
+            const updatedRaw = events.find(e => e.eventAction === 'last changed')?.eventDate;
+
+            const created = createdRaw ? new Date(createdRaw).toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' }) : '-';
+            const expires = expiresRaw ? new Date(expiresRaw).toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' }) : '-';
+            const updated = updatedRaw ? new Date(updatedRaw).toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' }) : '-';
+            
+            const registrar = (d.entities || []).find(e => (e.roles || []).includes('registrar'))?.handle || '-';
+            const nsString = (d.nameservers || []).map(n => `• ${n.ldhName}`).join('\n') || '-';
+
+            return `🔍 *WHOIS DOMAIN LOOKUP (RDAP)* 🔍\n\n` +
+                   `• Domain: *${d.ldhName.toUpperCase()}*\n` +
+                   `• Status Registrasi: *Terdaftar (Registered)*\n` +
+                   `• Registrar ID: *${registrar}*\n` +
+                   `• Tgl Registrasi: *${created}*\n` +
+                   `• Tgl Kedaluwarsa: *${expires}*\n` +
+                   `• Terakhir Diperbarui: *${updated}*\n\n` +
+                   `🖥️ *NAMESERVERS:*\n${nsString}`;
+          }
+        } catch (rdapErr) {
+          if (rdapErr.response && rdapErr.response.status === 404) {
+            return `🔍 *WHOIS DOMAIN LOOKUP* 🔍\n\nDomain *${cleaned.toUpperCase()}* tidak terdaftar atau tidak ditemukan.`;
+          }
+          console.warn('rdap.org WHOIS lookup failed:', rdapErr.message);
+        }
+
+        return `Gagal melakukan lookup WHOIS untuk domain ${cleaned}. Semua API query gagal atau terblokir rate-limit.`;
       }
     } catch (err) {
       if (signal && signal.aborted || err.message === 'STOPPED') {
@@ -4445,10 +5083,58 @@ Query: "${songTitle}"`;
     return `Image enhanced successfully and overwritten at file path: ${filePath}`;
   },
 
-  generate_tts: async ({ text }, chatId, signal) => {
+  generate_tts: async ({ text, podcastMode = false }, chatId, signal) => {
     ensureSandbox();
-    const { generateTts } = await import('./utils.js');
-    const outputPath = await generateTts(text, config.workspaceDir, signal);
+    if (!text || typeof text !== 'string' || text.trim() === '') {
+      return 'Error: Parameter "text" cannot be empty for generate_tts.';
+    }
+    const { generateTts, applyTtsVoiceEffect, getFfmpegPath, downloadTelegramFile } = await import('./utils.js');
+    let outputPath = await generateTts(text, config.workspaceDir, signal);
+
+    // Read user personality to apply voice effect
+    try {
+      const personalityPath = path.join(config.memoryDir, `${chatId}_personality.txt`);
+      let personality = 'biasa';
+      if (fs.existsSync(personalityPath)) {
+        personality = fs.readFileSync(personalityPath, 'utf8').trim().toLowerCase();
+      }
+      if (personality !== 'biasa') {
+        await applyTtsVoiceEffect(outputPath, personality, null, signal);
+      }
+    } catch (e) {
+      console.error('[generate_tts] Failed to apply personality voice effect:', e.message);
+    }
+
+    if (podcastMode) {
+      try {
+        const bgMusicPath = path.join(config.memoryDir, 'bg_music.mp3');
+
+        // Download fallback lofi background music if not present
+        if (!fs.existsSync(bgMusicPath)) {
+          console.log('[generate_tts] Downloading background music for podcast...');
+          // SoundHelix-Song-8 is a nice chill background instrumental track (synth/piano)
+          await downloadTelegramFile('https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3', bgMusicPath, signal);
+        }
+
+        if (fs.existsSync(bgMusicPath)) {
+          const ffmpegPath = await getFfmpegPath();
+          const mixedPath = outputPath.replace('.mp3', '_podcast.mp3');
+
+          // Mix voice (0) and background music (1) with volume adjustment and infinite looping of background music
+          const cmd = `"${ffmpegPath}" -y -i "${outputPath}" -i "${bgMusicPath}" -filter_complex "[0:a]volume=1.2[v];[1:a]volume=0.08,aloop=loop=-1:size=2e9[bg];[v][bg]amix=inputs=2:duration=first" "${mixedPath}"`;
+          await execWithTreeKill(cmd, {}, signal);
+
+          if (fs.existsSync(mixedPath)) {
+            fs.unlinkSync(outputPath);
+            outputPath = mixedPath;
+          }
+        }
+      } catch (bgErr) {
+        console.error('[generate_tts] Failed to mix background music:', bgErr.message);
+        // Fallback: keep the original TTS without background music
+      }
+    }
+
     const relPath = path.relative(config.workspaceDir, outputPath);
     return `TTS generated successfully. Saved at file path: ${relPath}`;
   },
@@ -4704,17 +5390,56 @@ Keep the length around 200-300 words.`;
     }
   },
 
-  find_song: async ({ url }, chatId, signal) => {
+  find_song: async ({ url, filePath }, chatId, signal) => {
     ensureSandbox();
     try {
-      const lowerUrl = url.toLowerCase();
-      const isTikTok = lowerUrl.includes('tiktok.com') || lowerUrl.includes('vm.tiktok') || lowerUrl.includes('vt.tiktok');
-
       let musicTitle = null;
       let musicAuthor = null;
       let musicAlbum = null;
       let videoDesc = null;
       let videoCreator = null;
+
+      // ───── STRATEGY 0: Shazam for local filePath ─────
+      if (filePath) {
+        const resolvedPath = path.join(config.workspaceDir, filePath);
+        if (fs.existsSync(resolvedPath)) {
+          console.log(`[find_song] Using node-shazam for local file: ${filePath}`);
+          try {
+            const { Shazam } = await import('node-shazam');
+            const shazam = new Shazam();
+            const res = await shazam.recognise(resolvedPath, 'id-ID');
+            if (res && res.track) {
+              musicTitle = res.track.title;
+              musicAuthor = res.track.subtitle;
+              musicAlbum = res.track.sections?.find(s => s.type === 'SONG')?.metadata?.find(m => m.title === 'Album')?.text;
+              
+              let result = `🎵 *Lagu Ditemukan (via Audio Recognition)!*\n\n`;
+              result += `🎶 *Judul:* ${musicTitle}\n`;
+              result += `🎤 *Artis:* ${musicAuthor}\n`;
+              if (musicAlbum) result += `💿 *Album:* ${musicAlbum}\n`;
+              result += `\n🔍 *Cari di YouTube Music:* https://music.youtube.com/search?q=${encodeURIComponent(`${musicTitle} ${musicAuthor}`)}\n`;
+              result += `🎧 *Cari di Spotify:* https://open.spotify.com/search/${encodeURIComponent(`${musicTitle} ${musicAuthor}`)}\n`;
+              result += `▶️ *Cari di YouTube:* https://www.youtube.com/results?search_query=${encodeURIComponent(`${musicTitle} ${musicAuthor}`)}`;
+              return result;
+            } else {
+              return `⚠️ Audio Recognition tidak dapat mengenali lagu pada file ${filePath}. Mungkin suara kurang jelas, hanya berisi percakapan, atau lagu tidak ada di database.`;
+            }
+          } catch (shazamErr) {
+            if (signal && signal.aborted) throw new Error('STOPPED');
+            console.warn(`[find_song] node-shazam failed: ${shazamErr.message}`);
+            return `⚠️ Gagal mengenali lagu dari file audio: ${shazamErr.message}`;
+          }
+        } else {
+          return `⚠️ File ${filePath} tidak ditemukan di sandbox.`;
+        }
+      }
+
+      if (!url) {
+        return `⚠️ Tidak ada URL atau file audio yang diberikan untuk mencari lagu.`;
+      }
+
+      const lowerUrl = url.toLowerCase();
+      const isTikTok = lowerUrl.includes('tiktok.com') || lowerUrl.includes('vm.tiktok') || lowerUrl.includes('vt.tiktok');
 
       // ───── STRATEGY 1: TikTok → Android API (bypasses IP block) ─────
       if (isTikTok) {
